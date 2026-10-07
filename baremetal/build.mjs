@@ -35,8 +35,24 @@ const boards = {
     screen: { width: 1920, height: 1080 },
     buildDirPrefix: "",
     defaultCore: "pattern",
-    cores: ["pattern", "boottest", "boottest-fceumm", "fceumm", "n64", "multi"],
-    defines: [],
+    // "all": the cores of the GPi build plus N64.
+    cores: ["pattern", "boottest", "boottest-fceumm", "fceumm", "n64", "multi", "all"],
+    sdCard: {
+      configDir: path.join(projectRoot, "rpi5"),
+      outputDir: path.join(repoRoot, "output-rpi5"),
+      image: path.join(repoRoot, "dist", "minerva-rpi5.img"),
+      // The Pi 5 boots from its EEPROM; the card needs the device trees only.
+      firmware: ["bcm2712-rpi-5-b.dtb", "bcm2712d0-rpi-5-b.dtb", "overlays/bcm2712d0.dtbo"],
+    },
+    // Circle's FatFs addon: folders and long file names on the SD card.
+    fatfs: true,
+    defines: [
+      "-DRA_BAREMETAL_FATFS=1",
+      // See the GPi board: freed blocks above Circle's largest bucket are
+      // never reused, and games are ended and others started.
+      "-DHEAP_BLOCK_BUCKET_SIZES=0x40,0x400,0x1000,0x4000,0x10000,0x40000,0x80000,"
+        + "0x100000,0x200000,0x400000,0x800000,0x1000000,0x2000000",
+    ],
   },
   gpi: {
     label: "Raspberry Pi Zero / Zero W im Retroflag GPi Case",
@@ -86,6 +102,46 @@ const boards = {
       outputDir: path.join(repoRoot, "output-gpi"),
       image: path.join(repoRoot, "dist", "minerva-gpi-zero.img"),
       firmware: ["bootcode.bin", "start.elf", "fixup.dat", "LICENCE.broadcom"],
+    },
+  },
+  gpi2: {
+    label: "Raspberry Pi Compute Module 4 im Retroflag GPi Case 2",
+    aarch: 64,
+    rasppi: 4,
+    triple: "aarch64-none-elf",
+    defaultToolchain: null,
+    cpuFlags: ["-mcpu=cortex-a72", "-mlittle-endian"],
+    alignFlags: ["-mstrict-align"],
+    target: "kernel8-rpi4",
+    loadAddress: "0x80000",
+    screen: { width: 640, height: 480 },
+    buildDirPrefix: "gpi2-",
+    defaultCore: "all",
+    // The core bundle of the Pi 5 (with N64).
+    cores: ["all"],
+    fatfs: true,
+    // The GPi Case 2 controller is the GPi Case's (see there).
+    circleOverrides: {
+      "usb/usbgamepadxbox360.cpp": path.join(projectRoot, "platform", "circle", "overrides", "usbgamepadxbox360.cpp"),
+    },
+    defines: [
+      // The GPi Case code (power latch, DPI pins, button labels) plus the
+      // differences of the GPi Case 2 (USB sound card, 640x480).
+      "-DRA_BAREMETAL_GPI_CASE=1",
+      "-DRA_BAREMETAL_GPI_CASE2=1",
+      "-DRA_BAREMETAL_FATFS=1",
+      // USB on the CM4: the SoC's internal xHCI controller (otg_mode=1).
+      "-DUSE_XHCI_INTERNAL",
+      // See the GPi board.
+      "-DHEAP_BLOCK_BUCKET_SIZES=0x40,0x400,0x1000,0x4000,0x10000,0x40000,0x80000,"
+        + "0x100000,0x200000,0x400000,0x800000,0x1000000,0x2000000",
+    ],
+    sdCard: {
+      configDir: path.join(projectRoot, "gpi2"),
+      outputDir: path.join(repoRoot, "output-gpi2"),
+      image: path.join(repoRoot, "dist", "minerva-gpi2-cm4.img"),
+      firmware: ["start4.elf", "fixup4.dat", "bcm2711-rpi-cm4.dtb", "LICENCE.broadcom"],
+      armstub: "armstub8-rpi4.bin",
     },
   },
 };
@@ -154,7 +210,8 @@ const config = {
   target: board.target,
   optimize: process.env.OPTIMIZE || "-O3",
   noUsb: selectedCore === "fceumm" && (cli.get("usb") === "0" || process.env.USB === "0"),
-  kernelMaxSize: cli.get("kernel-max-size") || process.env.KERNEL_MAX_SIZE || (selectedCore === "n64" || selectedCore === "multi" ? "0x08000000" : selectedCore === "all" ? "0x4000000" : selectedCore === "fceumm" ? "0x800000" : "0x200000"),
+  // The Pi 5 bundle has N64 (large static buffers, 135 MB with .bss); a Pi 5 has 1 GB or more.
+  kernelMaxSize: cli.get("kernel-max-size") || process.env.KERNEL_MAX_SIZE || (selectedCore === "all" && board.aarch === 64 ? "0x10000000" : selectedCore === "n64" || selectedCore === "multi" ? "0x08000000" : selectedCore === "all" ? "0x4000000" : selectedCore === "fceumm" ? "0x800000" : "0x200000"),
   hdmiPhysicalWidth: cli.get("hdmi-physical-width") || process.env.HDMI_PHYSICAL_WIDTH || "1920",
   hdmiPhysicalHeight: cli.get("hdmi-physical-height") || process.env.HDMI_PHYSICAL_HEIGHT || "1080",
   n64FrameSkip: selectedN64FrameSkip,
@@ -162,6 +219,11 @@ const config = {
   sdCard: board.sdCard && cli.get("sd") !== "0" && process.env.SD !== "0",
   splash: splashImage(),
 };
+
+// The N64 core needs the AArch64 dynarec (Pi 5).
+function bundleHasN64() {
+  return config.core === "all" && board.aarch === 64;
+}
 
 if (!board.cores.includes(config.core)) {
   console.error(`\nERROR: Core '${config.core}' is not available for board '${config.boardName}'. Use ${board.cores.map((name) => `'${name}'`).join(", ")}.`);
@@ -430,8 +492,9 @@ const defines = [
   ...(config.core === "fceumm" ? ["-DRA_BAREMETAL_FCEUMM=1"] : []),
   ...(config.core === "n64" ? ["-DRA_BAREMETAL_N64=1"] : []),
   ...(config.core === "multi" ? ["-DRA_BAREMETAL_MULTI=1"] : []),
-  ...(config.core === "n64" || config.core === "multi" ? ["-DARM_ALLOW_MULTI_CORE=1"] : []),
-  ...(config.core === "n64" || config.core === "multi" ? ["-DRA_BAREMETAL_ENABLE_JIT=1"] : []),
+  ...(bundleHasN64() ? ["-DRA_BAREMETAL_BUNDLE_N64=1"] : []),
+  ...(config.core === "n64" || config.core === "multi" || bundleHasN64() ? ["-DARM_ALLOW_MULTI_CORE=1"] : []),
+  ...(config.core === "n64" || config.core === "multi" || bundleHasN64() ? ["-DRA_BAREMETAL_ENABLE_JIT=1"] : []),
   ...(config.noUsb ? ["-DRA_BAREMETAL_NO_USB=1"] : []),
   "-U__unix__",
   "-U__linux__",
@@ -604,7 +667,7 @@ function appBaseSources() {
   return [
     ...appBaseSourcesNoInput,
     ...(config.noUsb ? [] : ["platform/circle/circle_input.cpp"]),
-    ...(config.boardName === "gpi" ? ["platform/circle/circle_gpi.cpp"] : []),
+    ...(config.boardName === "gpi" || config.boardName === "gpi2" ? ["platform/circle/circle_gpi.cpp"] : []),
     ...(config.splash ? ["platform/circle/circle_splash.cpp"] : []),
   ];
 }
@@ -668,6 +731,116 @@ function fceummSources() {
     path.join(common, "compat", "compat_strl.c"),
     path.join(common, "streams", "memory_stream.c"),
     path.join(projectRoot, "cores", "fceumm_baremetal_compat.c"),
+  ];
+}
+
+// The ARM64 dynarec's assembler takes the offsets of C structures from
+// asm_defines_gas.h, which the core's Makefile makes from the strings in its
+// compiled asm_defines.c. Same here, with the core's own flags.
+function n64AsmDefines(flags, includeFirst, options = {}) {
+  const core = path.join(projectRoot, "cores", "mupen64plus-libretro-nx", "mupen64plus-core");
+  const destDir = path.join(core, "src", "asm_defines");
+  const object = compile(path.join(destDir, "asm_defines.c"), flags, { prependFlags: includeFirst, ...options });
+  if (!newer(path.join(destDir, "asm_defines_gas.h"), [object])) return;
+  const strings = spawnSync("strings", [object], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  if (strings.status !== 0) fail(`strings failed for ${relFromRoot(object)}: ${strings.stderr}`);
+  const awk = spawnSync("awk", ["-v", `dest_dir=${destDir}`, "-f", path.join(core, "tools", "gen_asm_defines.awk")],
+    { input: strings.stdout.replace(/\r/g, ""), encoding: "utf8" });
+  if (awk.status !== 0) fail(`gen_asm_defines.awk failed: ${awk.stderr}`);
+  console.log(`GEN     ${relFromRoot(path.join(destDir, "asm_defines_gas.h"))}`);
+}
+
+// Circle's stub for the Pi 4 / CM4 (as circle/boot/armstub/Makefile builds
+// it): starts the CPU cores and sets up the interrupt controller for Circle.
+function buildArmstub(name) {
+  const source = path.join(config.circleHome, "boot", "armstub", "armstub8.S");
+  const dir = path.join(config.buildDir, "armstub");
+  ensureDir(dir);
+  const object = path.join(dir, `${path.basename(name, ".bin")}.o`);
+  const elf = path.join(dir, `${path.basename(name, ".bin")}.elf`);
+  const bin = path.join(dir, name);
+  if (newer(bin, [source])) {
+    run("AS", tools.cc, ["-DGIC=1", "-o", object, "-c", source], { display: relFromRoot(source) });
+    run("LD", tools.ld, ["--section-start=.text=0", "-o", elf, object], { display: relFromRoot(elf) });
+    run("COPY", tools.objcopy, [elf, "-O", "binary", bin], { display: relFromRoot(bin) });
+  }
+  return bin;
+}
+
+// Mupen64Plus-Next (N64): include directories and flags, shared by the
+// n64, multi and all builds.
+function mupenIncludes() {
+  const root = path.join(projectRoot, "cores", "mupen64plus-libretro-nx");
+  return [
+    "-I", path.join(projectRoot, "cores", "n64_compat"),
+    "-I", path.join(root, "libretro"),
+    "-I", path.join(root, "custom"),
+    "-I", path.join(root, "custom", "mupen64plus-core"),
+    "-I", path.join(root, "custom", "mupen64plus-core", "api"),
+    "-I", path.join(root, "custom", "mupen64plus-core", "plugin", "audio_libretro"),
+    "-I", path.join(root, "custom", "android", "include"),
+    "-I", path.join(root, "custom", "GLideN64"),
+    "-I", path.join(root, "custom", "dependencies", "libzlib"),
+    "-I", path.join(root, "mupen64plus-core", "src"),
+    "-I", path.join(root, "mupen64plus-core", "src", "api"),
+    "-I", path.join(root, "mupen64plus-core", "src", "main"),
+    "-I", path.join(root, "mupen64plus-core", "src", "osal"),
+    "-I", path.join(root, "mupen64plus-core", "src", "plugin"),
+    "-I", path.join(root, "mupen64plus-core", "src", "asm_defines"),
+    "-I", path.join(root, "mupen64plus-core", "src", "device", "r4300", "new_dynarec", "arm64"),
+    "-I", path.join(root, "mupen64plus-core", "subprojects", "md5"),
+    "-I", path.join(root, "mupen64plus-core", "subprojects", "minizip"),
+    "-I", path.join(root, "mupen64plus-rsp-cxd4"),
+    "-I", path.join(root, "mupen64plus-video-angrylion"),
+    "-I", path.join(root, "mupen64plus-video-angrylion", "n64video"),
+    "-I", path.join(root, "libretro-common", "include"),
+    "-I", path.join(root, "GLideN64", "src", "inc"),
+    "-I", path.join(root, "GLideN64", "src", "osal"),
+    "-I", path.join(root, "xxHash"),
+  ];
+}
+
+function mupenFlags() {
+  return [
+    "-std=gnu11",
+    "-D__LIBRETRO__",
+    "-DSTATIC_LINKING",
+    "-DM64P_PLUGIN_API",
+    "-DM64P_CORE_PROTOTYPES",
+    "-DDYNAREC",
+    "-DNEW_DYNAREC=4",
+    "-D_ENDUSER_RELEASE",
+    "-D__STDC_CONSTANT_MACROS",
+    "-D__STDC_LIMIT_MACROS",
+    "-D__STDC_FORMAT_MACROS",
+    "-DUSE_FILE32API",
+    "-DSINC_LOWER_QUALITY",
+    "-DTXFILTER_LIB",
+    "-D__VEC4_OPT",
+    "-DMUPENPLUSAPI",
+    "-DHAVE_THR_AL",
+    "-DHAVE_LLE",
+    "-DCORE_NAME=\"mupen64plus\"",
+    "-DGIT_VERSION=\" baremetal\"",
+    "-DPATH_MAX=1024",
+    formatDefine("PRIX64"),
+    "-DPRIX32=\"X\"",
+    "-DPRIX16=\"X\"",
+    "-DPRIX8=\"X\"",
+    formatDefine("PRIxPTR"),
+    formatDefine("PRIuPTR"),
+    formatDefine("PRIu64"),
+    formatDefine("PRId64"),
+    "-D_CRT_SECURE_NO_WARNINGS",
+    ...n64SpeedFlags,
+    "-Wno-unused-function",
+    "-Wno-unused-variable",
+    "-Wno-missing-braces",
+    "-Wno-implicit-fallthrough",
+    "-Wno-discarded-qualifiers",
+    "-Wno-unknown-pragmas",
+    "-ffunction-sections",
+    "-fdata-sections",
   ];
 }
 
@@ -794,6 +967,9 @@ const n64SpeedFlags = [
   "-fno-unwind-tables",
   "-fno-asynchronous-unwind-tables",
   "-fno-stack-protector",
+  // The ARM64 dynarec calls __clear_cache() without a declaration; GCC's
+  // builtin cleans and invalidates the caches inline on AArch64.
+  "-D__clear_cache=__builtin___clear_cache",
 ];
 
 // Core bundle (--core=all): several cores in one kernel. Each core is built
@@ -914,6 +1090,7 @@ function snes9x2002BundleCore() {
   const root = path.join(projectRoot, "cores", "snes9x2002");
   const src = path.join(root, "src");
   ensureFile(path.join(root, "Makefile.common"));
+  applyCorePatches(root, "snes9x2002");
   return {
     id: "snes9x2002",
     sources: [
@@ -922,18 +1099,21 @@ function snes9x2002BundleCore() {
         "libretro/libretro-common/streams/memory_stream.c",
       ]),
       // ARM_ASM selects the ARM-tuned renderer (as on the ARM11-based 3DS),
-      // the CPU and SPC700 cores stay in C.
+      // which has 32-bit ARM inline assembler; elsewhere (the Pi 5) the
+      // portable one. The CPU and SPC700 cores stay in C.
       ...existingSources(src, [
         "apu.c", "apuaux.c", "c4.c", "c4emu.c", "cheats.c", "cheats2.c", "clip.c",
         "cpu.c", "cpuexec.c", "cpuops.c", "data.c", "dma.c", "dsp1.c", "fxemu.c",
         "fxinst.c", "globals.c", "memmap.c", "sa1.c", "sa1cpu.c", "sdd1.c",
         "sdd1emu.c", "snapshot.c", "soundux.c", "spc700.c", "srtc.c",
-        "ppu.c", "rops.c", "gfx16.c",
-        "mode7.c", "mode7new.c", "mode7prio.c", "mode7add.c", "mode7addprio.c",
-        "mode7add1_2.c", "mode7add1_2prio.c", "mode7sub.c", "mode7subprio.c",
-        "mode7sub1_2.c", "mode7sub1_2prio.c",
-        "tile16.c", "tile16add.c", "tile16add1_2.c", "tile16fadd1_2.c",
-        "tile16sub.c", "tile16sub1_2.c", "tile16fsub1_2.c",
+        ...(board.aarch === 32 ? [
+          "ppu.c", "rops.c", "gfx16.c",
+          "mode7.c", "mode7new.c", "mode7prio.c", "mode7add.c", "mode7addprio.c",
+          "mode7add1_2.c", "mode7add1_2prio.c", "mode7sub.c", "mode7subprio.c",
+          "mode7sub1_2.c", "mode7sub1_2prio.c",
+          "tile16.c", "tile16add.c", "tile16add1_2.c", "tile16fadd1_2.c",
+          "tile16sub.c", "tile16sub1_2.c", "tile16fsub1_2.c",
+        ] : ["ppu_.c", "gfx.c", "tile.c"]),
       ]),
     ],
     includeFirst: [
@@ -950,7 +1130,7 @@ function snes9x2002BundleCore() {
       "-finline",
       "-fstrict-aliasing",
       "-D__LIBRETRO__",
-      "-DARM_ASM",
+      ...(board.aarch === 32 ? ["-DARM_ASM"] : ["-D__OLD_RASTER_FX__"]),
       "-DRIGHTSHIFT_IS_SAR",
       "-DHAVE_INTTYPES_H",
       "-DHAVE_STDINT_H",
@@ -1065,15 +1245,17 @@ function picodriveBundleCore() {
 function gpspBundleCore() {
   const root = path.join(projectRoot, "cores", "gpsp");
   ensureFile(path.join(root, "Makefile.common"));
-  // "make platform=rpi1": ARM dynarec with an mmap'ed (PROT_EXEC) translation
-  // cache, see baremetal/libc for the bare-metal side of that.
+  // "make platform=rpi1" (or arm64 on the Pi 5): dynarec with an mmap'ed
+  // (PROT_EXEC) translation cache, see baremetal/libc for the bare-metal
+  // side of that.
   return {
     id: "gpsp",
     cxx: true,
     sources: existingSources(root, [
       "main.c", "cpu.cc", "gba_memory.c", "savestate.c", "video.cc", "input.c",
       "sound.c", "cheats.c", "gbp.c", "serial.c", "serial_proto.c", "rfu.c",
-      "gba_cc_lut.c", "memmap.c", "cpu_threaded.c", "bios_data.S", "arm/arm_stub.S",
+      "gba_cc_lut.c", "memmap.c", "cpu_threaded.c", "bios_data.S",
+      board.aarch === 64 ? "arm/arm64_stub.S" : "arm/arm_stub.S",
       "libretro/libretro.c",
       "libretro/libretro-common/compat/compat_posix_string.c",
       "libretro/libretro-common/compat/compat_strl.c",
@@ -1100,8 +1282,7 @@ function gpspBundleCore() {
       "-fomit-frame-pointer",
       "-ffast-math",
       "-D__LIBRETRO__",
-      "-DARM11",
-      "-DARM_ARCH",
+      ...(board.aarch === 64 ? ["-DARM64_ARCH"] : ["-DARM11", "-DARM_ARCH"]),
       "-DHAVE_DYNAREC",
       "-DMMAP_JIT_CACHE",
       "-DFRONTEND_SUPPORTS_RGB565",
@@ -1114,6 +1295,21 @@ function gpspBundleCore() {
     ],
     // bios_data.S embeds the open-source BIOS with a relative .incbin path.
     fileFlags: (source) => (path.basename(source) === "bios_data.S" ? [`-Wa,-I,${root}`] : []),
+  };
+}
+
+// Mupen64Plus-Next for the core bundle on the Pi 5. Its stubs for mmap,
+// strdup etc. (cores/n64_baremetal_*.c) stay local to it like everything else.
+function n64BundleCore() {
+  const flags = mupenFlags();
+  const includeFirst = mupenIncludes();
+  n64AsmDefines(flags, includeFirst, { baseFlags: bundleCoreBaseFlags, cStd: [...legacyCFlags] });
+  return {
+    id: "n64",
+    sources: n64Sources(),
+    includeFirst,
+    cStd: [],
+    flags,
   };
 }
 
@@ -1250,6 +1446,7 @@ function bundleCores() {
   return [
     fceummBundleCore(), gambatteBundleCore(), snes9x2002BundleCore(), picodriveBundleCore(), gpspBundleCore(),
     ...extraBundleCores(),
+    ...(bundleHasN64() ? [n64BundleCore()] : []),
   ];
 }
 
@@ -1301,14 +1498,21 @@ function extraBundleCores() {
 // while the core still refers to it ("defined in discarded section"), and
 // libstdc++ itself needs some of them (GCC 15: basic_string::_M_construct
 // <true> for its locale shims). Everything else of a core becomes local.
+// On AArch64 the same goes for DW.ref.__gxx_personality_v0 (the personality
+// routine as .eh_frame CIEs refer to it) and DW.ref of standard typeinfos:
+// with a local copy per core the linker merged CIEs of different cores and
+// sent the unwinder to a discarded copy (fake-08's Lua throws).
 const STD_SYMBOL = /^_Z(?:T[VISHW]|GV|GVZ|Z)?(?:N[KVr]*)?(?:St|S[absiod]|9__gnu_cxx)/;
+const isSharedSymbol = (name) => STD_SYMBOL.test(name)
+  || name === "DW.ref.__gxx_personality_v0"
+  || (name.startsWith("DW.ref.") && STD_SYMBOL.test(name.slice("DW.ref.".length)));
 
 function sharedStdSymbols(object) {
   const result = spawnSync(tools.nm, ["--defined-only", object], { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
   if (result.status !== 0) fail(`nm failed for ${relFromRoot(object)}: ${result.stderr}`);
   return result.stdout.split("\n")
     .map((line) => line.trim().split(/\s+/))
-    .filter((fields) => fields.length === 3 && /^[WVu]$/.test(fields[1]) && STD_SYMBOL.test(fields[2]))
+    .filter((fields) => fields.length === 3 && /^[WVu]$/.test(fields[1]) && isSharedSymbol(fields[2]))
     .map((fields) => fields[2]);
 }
 
@@ -1441,34 +1645,7 @@ function buildCoreArchive() {
       "-Wno-implicit-fallthrough",
     ];
 
-    const n64Root = path.join(projectRoot, "cores", "mupen64plus-libretro-nx");
-    const n64IncludeFirst = [
-      "-I", path.join(projectRoot, "cores", "n64_compat"),
-      "-I", path.join(n64Root, "libretro"),
-      "-I", path.join(n64Root, "custom"),
-      "-I", path.join(n64Root, "custom", "mupen64plus-core"),
-      "-I", path.join(n64Root, "custom", "mupen64plus-core", "api"),
-      "-I", path.join(n64Root, "custom", "mupen64plus-core", "plugin", "audio_libretro"),
-      "-I", path.join(n64Root, "custom", "android", "include"),
-      "-I", path.join(n64Root, "custom", "GLideN64"),
-      "-I", path.join(n64Root, "custom", "dependencies", "libzlib"),
-      "-I", path.join(n64Root, "mupen64plus-core", "src"),
-      "-I", path.join(n64Root, "mupen64plus-core", "src", "api"),
-      "-I", path.join(n64Root, "mupen64plus-core", "src", "main"),
-      "-I", path.join(n64Root, "mupen64plus-core", "src", "osal"),
-      "-I", path.join(n64Root, "mupen64plus-core", "src", "plugin"),
-      "-I", path.join(n64Root, "mupen64plus-core", "src", "asm_defines"),
-      "-I", path.join(n64Root, "mupen64plus-core", "src", "device", "r4300", "new_dynarec", "arm64"),
-      "-I", path.join(n64Root, "mupen64plus-core", "subprojects", "md5"),
-      "-I", path.join(n64Root, "mupen64plus-core", "subprojects", "minizip"),
-      "-I", path.join(n64Root, "mupen64plus-rsp-cxd4"),
-      "-I", path.join(n64Root, "mupen64plus-video-angrylion"),
-      "-I", path.join(n64Root, "mupen64plus-video-angrylion", "n64video"),
-      "-I", path.join(n64Root, "libretro-common", "include"),
-      "-I", path.join(n64Root, "GLideN64", "src", "inc"),
-      "-I", path.join(n64Root, "GLideN64", "src", "osal"),
-      "-I", path.join(n64Root, "xxHash"),
-    ];
+    const n64IncludeFirst = mupenIncludes();
     const n64Flags = [
       ...libretroSymbolDefines("n64"),
       ...prefixedGlobalDefines("n64", [
@@ -1486,130 +1663,29 @@ function buildCoreArchive() {
         "video_cb",
         ...multiCoreSharedSymbolDefines,
       ]),
-      "-std=gnu11",
-      "-D__LIBRETRO__",
-      "-DSTATIC_LINKING",
-      "-DM64P_PLUGIN_API",
-      "-DM64P_CORE_PROTOTYPES",
-      "-DDYNAREC",
-      "-DNEW_DYNAREC=4",
-      "-D_ENDUSER_RELEASE",
-      "-D__STDC_CONSTANT_MACROS",
-      "-D__STDC_LIMIT_MACROS",
-      "-D__STDC_FORMAT_MACROS",
-      "-DUSE_FILE32API",
-      "-DSINC_LOWER_QUALITY",
-      "-DTXFILTER_LIB",
-      "-D__VEC4_OPT",
-      "-DMUPENPLUSAPI",
-      "-DHAVE_THR_AL",
-      "-DHAVE_LLE",
-      "-DCORE_NAME=\"mupen64plus\"",
-      "-DGIT_VERSION=\" baremetal\"",
-      "-DPATH_MAX=1024",
-      formatDefine("PRIX64"),
-      "-DPRIX32=\"X\"",
-      "-DPRIX16=\"X\"",
-      "-DPRIX8=\"X\"",
-      formatDefine("PRIxPTR"),
-      formatDefine("PRIuPTR"),
-      formatDefine("PRIu64"),
-      formatDefine("PRId64"),
-      "-D_CRT_SECURE_NO_WARNINGS",
-      ...n64SpeedFlags,
-      "-Wno-unused-function",
-      "-Wno-unused-variable",
-      "-Wno-missing-braces",
-      "-Wno-implicit-fallthrough",
-      "-Wno-discarded-qualifiers",
-      "-Wno-unknown-pragmas",
-      "-ffunction-sections",
-      "-fdata-sections",
+      ...mupenFlags(),
     ];
 
     const fceummArchive = archive("libfceumm_multi.a", fceummSources(), fceummFlags, { prependFlags: fceummIncludeFirst });
+    n64AsmDefines(n64Flags, n64IncludeFirst);
     const n64Archive = archive("libmupen64plus_next_multi.a", n64Sources(), n64Flags, { prependFlags: n64IncludeFirst });
     return {
-      appSources: existingSources(projectRoot, appBaseSources()),
+      // circle_bridge.cpp: executable pages for the dynarec (mprotect).
+      appSources: existingSources(projectRoot, [...appBaseSources(), "libc/circle_bridge.cpp"]),
       archives: [fceummArchive, n64Archive],
       extraLibs: ["libc"],
     };
   }
 
   if (config.core === "n64") {
-    const root = path.join(projectRoot, "cores", "mupen64plus-libretro-nx");
-    const includeFirst = [
-      "-I", path.join(projectRoot, "cores", "n64_compat"),
-      "-I", path.join(root, "libretro"),
-      "-I", path.join(root, "custom"),
-      "-I", path.join(root, "custom", "mupen64plus-core"),
-      "-I", path.join(root, "custom", "mupen64plus-core", "api"),
-      "-I", path.join(root, "custom", "mupen64plus-core", "plugin", "audio_libretro"),
-      "-I", path.join(root, "custom", "android", "include"),
-      "-I", path.join(root, "custom", "GLideN64"),
-      "-I", path.join(root, "custom", "dependencies", "libzlib"),
-      "-I", path.join(root, "mupen64plus-core", "src"),
-      "-I", path.join(root, "mupen64plus-core", "src", "api"),
-      "-I", path.join(root, "mupen64plus-core", "src", "main"),
-      "-I", path.join(root, "mupen64plus-core", "src", "osal"),
-      "-I", path.join(root, "mupen64plus-core", "src", "plugin"),
-      "-I", path.join(root, "mupen64plus-core", "src", "asm_defines"),
-      "-I", path.join(root, "mupen64plus-core", "src", "device", "r4300", "new_dynarec", "arm64"),
-      "-I", path.join(root, "mupen64plus-core", "subprojects", "md5"),
-      "-I", path.join(root, "mupen64plus-core", "subprojects", "minizip"),
-      "-I", path.join(root, "mupen64plus-rsp-cxd4"),
-      "-I", path.join(root, "mupen64plus-video-angrylion"),
-      "-I", path.join(root, "mupen64plus-video-angrylion", "n64video"),
-      "-I", path.join(root, "libretro-common", "include"),
-      "-I", path.join(root, "GLideN64", "src", "inc"),
-      "-I", path.join(root, "GLideN64", "src", "osal"),
-      "-I", path.join(root, "xxHash"),
-    ];
-    const flags = [
-      "-std=gnu11",
-      "-D__LIBRETRO__",
-      "-DSTATIC_LINKING",
-      "-DM64P_PLUGIN_API",
-      "-DM64P_CORE_PROTOTYPES",
-      "-DDYNAREC",
-      "-DNEW_DYNAREC=4",
-      "-D_ENDUSER_RELEASE",
-      "-D__STDC_CONSTANT_MACROS",
-      "-D__STDC_LIMIT_MACROS",
-      "-D__STDC_FORMAT_MACROS",
-      "-DUSE_FILE32API",
-      "-DSINC_LOWER_QUALITY",
-      "-DTXFILTER_LIB",
-      "-D__VEC4_OPT",
-      "-DMUPENPLUSAPI",
-      "-DHAVE_THR_AL",
-      "-DHAVE_LLE",
-      "-DCORE_NAME=\"mupen64plus\"",
-      "-DGIT_VERSION=\" baremetal\"",
-      "-DPATH_MAX=1024",
-      formatDefine("PRIX64"),
-      "-DPRIX32=\"X\"",
-      "-DPRIX16=\"X\"",
-      "-DPRIX8=\"X\"",
-      formatDefine("PRIxPTR"),
-      formatDefine("PRIuPTR"),
-      formatDefine("PRIu64"),
-      formatDefine("PRId64"),
-      "-D_CRT_SECURE_NO_WARNINGS",
-      ...n64SpeedFlags,
-      "-Wno-unused-function",
-      "-Wno-unused-variable",
-      "-Wno-missing-braces",
-      "-Wno-implicit-fallthrough",
-      "-Wno-discarded-qualifiers",
-      "-Wno-unknown-pragmas",
-      "-ffunction-sections",
-      "-fdata-sections",
-    ];
+    const includeFirst = mupenIncludes();
+    const flags = mupenFlags();
 
+    n64AsmDefines(flags, includeFirst);
     const archiveFile = archive("libmupen64plus_next_baremetal.a", n64Sources(), flags, { prependFlags: includeFirst });
     return {
-      appSources: existingSources(projectRoot, appBaseSources()),
+      // circle_bridge.cpp: executable pages for the dynarec (mprotect).
+      appSources: existingSources(projectRoot, [...appBaseSources(), "libc/circle_bridge.cpp"]),
       archives: [archiveFile],
       extraLibs: ["libc"],
     };
@@ -1727,7 +1803,14 @@ async function main() {
   const map = path.join(config.buildDir, `${config.target}.map`);
   const img = path.join(config.buildDir, `${config.target}.img`);
   const lst = path.join(config.buildDir, `${config.target}.lst`);
+  // AArch64: crtbegin.o registers .eh_frame for the unwinder (C++ exceptions,
+  // e.g. in fake-08's Lua), like Circle's own Rules.mk does; 32-bit ARM finds
+  // its EHABI tables without that.
+  const [crtBegin, crtEnd] = board.aarch === 64
+    ? ["crtbegin.o", "crtend.o"].map((file) => path.resolve(outputOf(tools.cc, [...board.cpuFlags, `-print-file-name=${file}`])))
+    : [];
   const allLinkInputs = [
+    ...(crtBegin ? [crtBegin, crtEnd] : []),
     ...appObjects,
     ...coreObjects,
     ...coreArchives,
@@ -1745,10 +1828,11 @@ async function main() {
       // The bundle cores use int-sized enums (-fno-short-enums), the rest
       // the arm-none-eabi default; only the libretro API crosses between
       // them, and its enums are int-sized in both.
-      ...(config.core === "all" ? ["--no-enum-size-warning"] : []),
+      ...(config.core === "all" && board.aarch === 32 ? ["--no-enum-size-warning"] : []),
       ...(allowMultipleDefinition ? ["--allow-multiple-definition"] : []),
       ...gcSections,
       "-T", path.join(config.circleHome, "circle.ld"),
+      ...(crtBegin ? [crtBegin] : []),
       ...appObjects,
       ...coreObjects,
       "--start-group",
@@ -1756,6 +1840,7 @@ async function main() {
       ...libff,
       libsdcard, libsound, libusb, libinput, libfatfs, libfs, libcircle, libgcc, libm, ...extraLibs,
       "--end-group",
+      ...(crtEnd ? [crtEnd] : []),
     ], { display: relFromRoot(elf) });
   }
 
@@ -1789,6 +1874,7 @@ async function main() {
   if (config.sdCard) {
     await assembleSdCard({
       ...board.sdCard,
+      extraFiles: board.sdCard.armstub ? [buildArmstub(board.sdCard.armstub)] : [],
       kernelImage: img,
       kernelName: `${config.target}.img`,
       circleHome: config.circleHome,

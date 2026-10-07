@@ -1,0 +1,30 @@
+diff --git a/src/asmmemfuncs.h b/src/asmmemfuncs.h
+index 6fe7853..4b0b89d 100644
+--- a/src/asmmemfuncs.h
++++ b/src/asmmemfuncs.h
+@@ -204,8 +204,23 @@
+     ); _dst; \
+ })
+ #else
+-#define memset32(_dst, _c, _count) memset(_dst, _c, (_count)<<2)
+-#define memset16(_dst, _c, _count) memset(_dst, _c, (_count)<<1)
++// memset() would repeat only the low byte of a colour; fill whole words.
++static inline void memset32_portable(void *dst, uint32_t c, int count)
++{
++   uint32_t *d = (uint32_t *)dst;
++   while (count-- > 0)
++      *d++ = c;
++}
++
++static inline void memset16_portable(void *dst, uint16_t c, int count)
++{
++   uint16_t *d = (uint16_t *)dst;
++   while (count-- > 0)
++      *d++ = c;
++}
++
++#define memset32(_dst, _c, _count) memset32_portable((_dst), (_c), (_count))
++#define memset16(_dst, _c, _count) memset16_portable((_dst), (_c), (_count))
+ #define memcpy32(_dst, _src, _count) memcpy(_dst, _src, (_count)<<2)
+ #define memcpy16(_dst, _src, _count) memcpy(_dst, _src, (_count)<<1)
+ #endif

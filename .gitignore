@@ -21,9 +21,15 @@
 
 # GPi Case build outputs
 /baremetal/build-node/gpi-*/
+# GPi Case 2 and Pi 5 build outputs (the tracked files of the old multi,
+# fceumm and boottest builds stay tracked)
+/baremetal/build-node/gpi2-*/
+/baremetal/build-node/all/
+/baremetal/build-node/multi/
 /dist/
 
 # Test outputs (baremetal/tests/)
 /baremetal/build-node/arm-smoke/
+/baremetal/build-node/aarch64-smoke*/
 /baremetal/build-node/test-roms/
 /baremetal/build-node/host-tests/

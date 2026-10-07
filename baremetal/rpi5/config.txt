@@ -1,0 +1,21 @@
+# Raspberry Pi 5 + Circle bare-metal boot config.
+# Circle emits kernel_2712.img for RASPPI=5/AARCH=64.
+arm_64bit=1
+kernel=kernel_2712.img
+kernel_address=0x80000
+initial_turbo=60
+enable_uart=1
+hdmi_force_hotplug=1
+hdmi_drive=2
+hdmi_force_edid_audio=1
+disable_overscan=1
+hdmi_group=1
+hdmi_mode=16
+# Circle's framebuffer size is the actual surface RetroArch writes to here.
+# Keep it native 1080p so the bare-metal scaler can fill the full TV height.
+framebuffer_width=1920
+framebuffer_height=1080
+framebuffer_depth=16
+
+# If you intentionally rename the image to kernel8.img, change the line above to:
+# kernel=kernel8.img

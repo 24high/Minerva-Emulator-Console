@@ -627,6 +627,16 @@ clock_t _times(struct tms *pTimes)
 	return nTicks;
 }
 
+#if defined(__aarch64__)
+// AArch64 dynarecs (gpSP) call the kernel's code from their code buffer with
+// BL, which reaches +/-128 MB. The heap starts behind the kernel's 256 MB
+// region, too far away, so the executable mapping comes from this block in
+// .bss right behind the kernel code instead (one at a time: gpSP's cache).
+static const size_t JIT_ARENA_SIZE = 12 * 1024 * 1024;
+static uint8_t s_JitArena[JIT_ARENA_SIZE] __attribute__((aligned(65536)));
+static bool s_JitArenaUsed;
+#endif
+
 void *mmap(void *, size_t nLength, int nProt, int nFlags, int fd, off_t)
 {
 	if (!(nFlags & MAP_ANONYMOUS) || fd != -1 || (nFlags & MAP_FIXED))
@@ -634,6 +644,20 @@ void *mmap(void *, size_t nLength, int nProt, int nFlags, int fd, off_t)
 		errno = ENOTSUP;
 		return MAP_FAILED;
 	}
+
+#if defined(__aarch64__)
+	if ((nProt & PROT_EXEC) && !s_JitArenaUsed && nLength <= JIT_ARENA_SIZE
+	    && ra_libc_make_executable(s_JitArena, nLength) == 0)
+	{
+		s_JitArenaUsed = true;
+		memset(s_JitArena, 0, nLength);
+		char Message[96];
+		snprintf(Message, sizeof Message, "mmap: %u KB executable at %p (code area)",
+			 (unsigned)(nLength / 1024), (void *)s_JitArena);
+		ra_libc_log(Message);
+		return s_JitArena;
+	}
+#endif
 
 	void *pBlock = AlignedAllocate(4096, nLength);
 	if (!pBlock)
@@ -662,6 +686,13 @@ void *mmap(void *, size_t nLength, int nProt, int nFlags, int fd, off_t)
 
 int munmap(void *pBlock, size_t)
 {
+#if defined(__aarch64__)
+	if (pBlock == s_JitArena)
+	{
+		s_JitArenaUsed = false;
+		return 0;
+	}
+#endif
 	free(pBlock);
 	return 0;
 }

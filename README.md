@@ -21,14 +21,14 @@
   <h3 align="center">Minerva Console</h3>
 
   <p align="center">
-    A bare-metal retro console for the Raspberry Pi Zero in the Retroflag GPi Case.
+    A bare-metal retro console for the Retroflag GPi Case (Raspberry Pi Zero), the GPi Case 2 (Compute Module 4) and the Raspberry Pi 5.
     <br />
     It boots into the game list in about 5 seconds, instead of the usual 30 to 45 seconds.
     <br />
     <a href="baremetal/README.md"><strong>Explore the docs »</strong></a>
     <br />
     <br />
-    <a href="output-gpi">Ready-made SD card files</a>
+    Ready-made SD card files: <a href="output-gpi">GPi Case</a> &middot; <a href="output-gpi2">GPi Case 2</a> &middot; <a href="output-rpi5">Raspberry Pi 5</a>
     &middot;
     <a href="https://github.com/24high/Minerva-Emulator-Console/issues/new?labels=bug">Report Bug</a>
     &middot;
@@ -45,6 +45,7 @@
     <li>
       <a href="#about-the-project">About The Project</a>
       <ul>
+        <li><a href="#supported-hardware">Supported Hardware</a></li>
         <li><a href="#supported-systems">Supported Systems</a></li>
         <li><a href="#built-with">Built With</a></li>
       </ul>
@@ -70,7 +71,14 @@
 <!-- ABOUT THE PROJECT -->
 ## About The Project
 
-Minerva Console runs libretro emulator cores directly on the hardware of a Raspberry Pi, without Linux or any other operating system underneath. It is built on the Circle bare-metal C++ environment. You flip the power switch of the GPi Case and about 5 seconds later you are in the game list. A Linux based setup on the same hardware usually needs 30 to 45 seconds to get there.
+Minerva Console runs libretro emulator cores directly on the hardware of a Raspberry Pi, without Linux or any other operating system underneath. It is built on the Circle bare-metal C++ environment. You switch it on and about 5 seconds later you are in the game list. A Linux based setup on the same hardware usually needs 30 to 45 seconds to get there.
+
+Minerva Console exists for three devices:
+* **Retroflag GPi Case** with a Raspberry Pi Zero / Zero W
+* **Retroflag GPi Case 2** with a Raspberry Pi Compute Module 4
+* **Raspberry Pi 5** on a TV, with a USB gamepad
+
+All three show the same game list and run the same emulators; the GPi Case 2 and the Pi 5 also play N64 games.
 
 Why bare metal:
 * Boots in about 5 seconds instead of 30 to 45
@@ -78,9 +86,21 @@ Why bare metal:
 * The whole system is one kernel file on a FAT32 SD card
 * Turning the case off is safe at any time, saves are written before the power is cut
 
-The GPi Case normally needs a set of overlays and scripts on Linux for its screen, sound, controller and safe shutdown. Here the kernel handles all of that itself: the DPI display, PWM audio on GPIO18/19, the built-in controller (it shows up as an Xbox 360 pad) and the power switch.
+The GPi Case and the GPi Case 2 normally need a set of overlays and scripts on Linux for their screen, sound, controller and safe shutdown. Here the kernel handles all of that itself: on the GPi Case the DPI display, PWM audio on GPIO18/19, the built-in controller (it shows up as an Xbox 360 pad) and the power switch; on the GPi Case 2 the 640x480 DPI display, the case's USB sound card, the controller and the power switch.
 
-The project started as a bare-metal port of RetroArch for the Raspberry Pi 5, which is still in the repository. The original Windows UWP port this repository is based on is described in [README-UWP.md](README-UWP.md).
+### Supported Hardware
+
+| Device | Kernel | SD card files | Image |
+|---|---|---|---|
+| Retroflag GPi Case with a Raspberry Pi Zero / Zero W | 32-bit, 15 cores | [`output-gpi`](output-gpi) | `dist/minerva-gpi-zero.img` |
+| Retroflag GPi Case 2 with a Compute Module 4 | 64-bit, 16 cores (with N64) | [`output-gpi2`](output-gpi2) | `dist/minerva-gpi2-cm4.img` |
+| Raspberry Pi 5 on a TV (HDMI, USB gamepad) | 64-bit, 16 cores (with N64) | [`output-rpi5`](output-rpi5) | `dist/minerva-rpi5.img` |
+
+The GPi Case 2 kernel drives the case the same way: the 640x480 DPI screen, its USB sound card, the controller and the power switch. It is built for a CM4 Lite, which boots from the SD card. The dock (HDMI output) is not supported yet.
+
+The GPi Case is tested on the device. The Pi 5 and GPi Case 2 kernels pass the same emulated tests (all cores on a Cortex-A76 and a Cortex-A72 under QEMU), but have not run on real hardware yet.
+
+The project started as a bare-metal port of RetroArch for the Raspberry Pi 5; the Pi 5 version now has the same game list and cores as the GPi versions. The original Windows UWP port this repository is based on is described in [README-UWP.md](README-UWP.md).
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -106,10 +126,11 @@ The project started as a bare-metal port of RetroArch for the Raspberry Pi 5, wh
 | Commodore 64 | Frodo | `.d64` `.t64` `.x64` `.p00` |
 | PICO-8 | fake-08 | `.p8` `.p8.png` |
 | Arcade | MAME 2000 (0.37b5) | `.zip` |
+| Nintendo 64 (GPi Case 2 and Pi 5 only) | Mupen64Plus-Next | `.z64` `.n64` `.v64` |
 
-All 15 cores are linked into a single kernel, the right one is picked by the file extension. None of them needs a BIOS file. The PC Engine core plays HuCards only, CD games are not supported.
+All cores are linked into a single kernel, the right one is picked by the file extension. None of them needs a BIOS file. The PC Engine core plays HuCards only, CD games are not supported. N64 needs a 64-bit Pi; leaving an N64 game restarts the console (about 5 seconds) instead of returning to the game list directly.
 
-MS-DOS, the PSP and the N-Gage are not included. The PSP and the N-Gage are far beyond what a Pi Zero can emulate, and the DOS emulators either need threads or a set of libraries that do not exist without an operating system.
+MS-DOS, the PSP and the N-Gage are not included. The PSP and the N-Gage are far beyond what a Pi Zero can emulate, and on the 64-bit boards their emulators would need the GPU through OpenGL or Vulkan, which a bare-metal kernel does not have. The DOS emulators either need threads or a set of libraries that do not exist without an operating system.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -130,7 +151,7 @@ MS-DOS, the PSP and the N-Gage are not included. The PSP and the N-Gage are far 
 <!-- GETTING STARTED -->
 ## Getting Started
 
-If you only want to play, copy the contents of [`output-gpi`](output-gpi) to a FAT32-formatted SD card, add your games and put the card into the GPi Case. Nothing has to be built for that.
+If you only want to play, copy the contents of [`output-gpi`](output-gpi) (GPi Case), [`output-gpi2`](output-gpi2) (GPi Case 2) or [`output-rpi5`](output-rpi5) (Raspberry Pi 5) to a FAT32-formatted SD card, add your games and put the card in. Nothing has to be built for that.
 
 To build the kernel yourself, follow the steps below.
 
@@ -138,7 +159,7 @@ To build the kernel yourself, follow the steps below.
 
 * A Linux PC
 * Node.js 18 or newer
-* Arm GNU Toolchain 15.2.rel1 for `arm-none-eabi` from [developer.arm.com](https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads), unpacked into `./toolchain`
+* Arm GNU Toolchain 15.2.rel1 from [developer.arm.com](https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads), unpacked into `./toolchain`: `arm-none-eabi` for the GPi Case, `aarch64-none-elf` for the GPi Case 2 and the Pi 5
 * For the SD card image: dosfstools and mtools
   ```sh
   sudo apt install dosfstools mtools
@@ -172,13 +193,18 @@ To build the kernel yourself, follow the steps below.
    git clone --depth 1 https://github.com/libretro/frodo-libretro.git baremetal/cores/frodo-libretro
    git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/jtothebell/fake-08.git baremetal/cores/fake-08
    git clone --depth 1 https://github.com/libretro/mame2000-libretro.git baremetal/cores/mame2000-libretro
+   git clone --depth 1 https://github.com/libretro/mupen64plus-libretro-nx.git baremetal/cores/mupen64plus-libretro-nx
    ```
+   The last one (N64) is only needed for the GPi Case 2 and the Pi 5.
    The build applies the small fixes in `baremetal/patches` to the cores by itself.
 4. Build the kernel and the SD card image
    ```sh
-   npm run build:gpi
+   npm run build:gpi     # GPi Case (Pi Zero)
+   npm run build:gpi2    # GPi Case 2 (CM4)
+   npm run build:rpi5    # Raspberry Pi 5
    ```
-5. Flash `dist/minerva-gpi-zero.img` with Raspberry Pi Imager or `dd`, or copy the contents of `output-gpi/` to a FAT32 SD card. The build downloads the Raspberry Pi firmware files it needs.
+   The image is 256 MB by default; `SD_IMAGE_MB=4096 npm run build:gpi` makes it 4 GB.
+5. Flash the image from `dist/` with Raspberry Pi Imager or `dd`, or copy the contents of `output-gpi/`, `output-gpi2/` or `output-rpi5/` to a FAT32 SD card. The build downloads the Raspberry Pi firmware files it needs.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -187,7 +213,7 @@ To build the kernel yourself, follow the steps below.
 <!-- USAGE EXAMPLES -->
 ## Usage
 
-Copy your games anywhere onto the SD card, folders and long file names are fine. Set the SAFE SHUTDOWN switch of the GPi Case to ON.
+Copy your games anywhere onto the SD card, folders and long file names are fine. Set the SAFE SHUTDOWN switch of the GPi Case to ON. The GPi Case 2 uses the same buttons as the GPi Case; on the Pi 5 connect a USB gamepad (Xbox 360 style pads work best).
 
 **Game list**
 
@@ -226,7 +252,7 @@ A picture that cannot be read (damaged file, larger than 4 MB or 2048 x 2048 pix
 | Start + Select (hold for half a second) | Back to the game list |
 | Power switch off | Saves, then turns the case off |
 
-The GPi Case only has A, B, X and Y. Systems with shoulder buttons get them on Y (L) and X (R):
+The GPi Case only has A, B, X and Y, so systems with shoulder buttons get them on Y (L) and X (R). The same layouts are used on the GPi Case 2 and the Pi 5:
 
 | System | Layout |
 |---|---|
@@ -279,6 +305,9 @@ For more details, like the build options, the tests and how the cores are linked
 - [x] In-game saves and clock for RTC cartridges
 - [x] Return to the game list with Start + Select
 - [x] Atari 2600, Lynx, PC Engine, WonderSwan, ZX Spectrum, ZX81, Amstrad CPC, C64, PICO-8 and arcade games
+- [x] GPi Case 2 (CM4) and Raspberry Pi 5 with all cores plus N64
+- [ ] GPi Case 2 dock (HDMI output)
+- [ ] Testing on a real GPi Case 2 and Pi 5
 - [ ] Save states
 - [ ] Faster ARM cores for the Mega Drive (Cyclone, DrZ80)
 - [ ] In-game menu (volume, reset)
@@ -301,7 +330,7 @@ If you have a fix or an idea, please fork the repo and create a pull request. Yo
 4. Push to the Branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
 
-Before a pull request, please run the tests in `baremetal/tests` (they run the cores on an emulated ARM1176 with qemu-arm).
+Before a pull request, please run the tests in `baremetal/tests` (they run the cores on an emulated ARM1176 with qemu-arm, and with `--board=pi5` or `--board=gpi2` on an emulated Cortex-A76/A72 with qemu-aarch64).
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -335,8 +364,9 @@ Project Link: [https://github.com/24high/Minerva-Emulator-Console](https://githu
 * [Circle](https://github.com/rsta2/circle) by Rene Stange
 * [RetroArch and libretro](https://www.libretro.com)
 * [FCEUmm](https://github.com/libretro/libretro-fceumm), [Gambatte](https://github.com/libretro/gambatte-libretro), [Snes9x 2002](https://github.com/libretro/snes9x2002), [PicoDrive](https://github.com/libretro/picodrive) and [gpSP](https://github.com/libretro/gpsp)
+* [Mupen64Plus-Next](https://github.com/libretro/mupen64plus-libretro-nx)
 * [Stella 2014](https://github.com/libretro/stella2014-libretro), [Handy](https://github.com/libretro/libretro-handy), [Beetle PCE Fast](https://github.com/libretro/beetle-pce-fast-libretro), [Beetle WonderSwan](https://github.com/libretro/beetle-wswan-libretro), [Fuse](https://github.com/libretro/fuse-libretro), [EightyOne](https://github.com/libretro/81-libretro), [Caprice32](https://github.com/libretro/libretro-cap32), [Frodo](https://github.com/libretro/frodo-libretro), [fake-08](https://github.com/jtothebell/fake-08) and [MAME 2000](https://github.com/libretro/mame2000-libretro)
-* [Retroflag](https://retroflag.com) for the GPi Case
+* [Retroflag](https://retroflag.com) for the GPi Case and the GPi Case 2
 * [stb_image](https://github.com/nothings/stb) by Sean Barrett, used to load the tile pictures
 * The system logos on the tiles are taken from [wowroms.com](https://wowroms.com/en/all-roms)
 * Bashar Astifan and [Gustave Monce](https://github.com/gus33000) for the UWP port this repository started from

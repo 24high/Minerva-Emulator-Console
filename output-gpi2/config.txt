@@ -1,0 +1,55 @@
+# Raspberry Pi Compute Module 4 in the Retroflag GPi Case 2, Circle bare
+# metal (64 bit).
+#
+# The GPi Case 2 normally needs Linux overlays and scripts (dpi24,
+# SafeShutdown_gpi2.py). None of them run without Linux, so their settings
+# are reproduced here with firmware "gpio=" lines, and again in the kernel
+# (baremetal/platform/circle/circle_gpi.cpp).
+
+arm_64bit=1
+kernel=kernel8-rpi4.img
+# Circle's own stub: starts the CPU cores and sets up the interrupt
+# controller for Circle.
+armstub=armstub8-rpi4.bin
+kernel_address=0x80000
+disable_splash=1
+boot_delay=0
+
+# USB: the case's controller and its USB sound card hang on the CM4's USB 2.0
+# port, which Circle drives as the SoC's internal xHCI controller.
+otg_mode=1
+
+# --- Display: 3" DPI panel, 640x480 ---
+enable_dpi_lcd=1
+display_default_lcd=1
+dpi_group=2
+dpi_mode=87
+dpi_output_format=0x00016
+dpi_timings=640 0 41 40 41 480 0 18 9 18 0 0 0 60 0 24000000 1
+framebuffer_width=640
+framebuffer_height=480
+framebuffer_depth=16
+max_framebuffers=2
+disable_overscan=1
+overscan_left=0
+overscan_right=0
+overscan_top=0
+overscan_bottom=0
+
+# DPI pins (replaces dtoverlay=dpi24). Output format 6 (RGB666, mode 2)
+# uses GPIO0-9, 12-17 and 20-25.
+gpio=0-17=a2,np
+gpio=20-25=a2,np
+
+# GPIO18 tells whether the case sits in its dock (high = docked).
+gpio=18=ip,pd
+
+# Soft power off (replaces SafeShutdown_gpi2.py): GPIO27 holds the power
+# latch of the case, GPIO26 reads the power switch (low = switched off).
+gpio=27=op,dh
+gpio=26=ip,pu
+
+# GPIO14/15 are DPI data lines in the GPi Case 2, so the UART stays off;
+# the sound comes from the case's USB sound card.
+enable_uart=0
+dtparam=audio=off

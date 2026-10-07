@@ -170,6 +170,61 @@ extern "C" void __clear_cache(void *pBegin, void *pEnd)
 	ra_libc_clear_cache(pBegin, pEnd);
 }
 
+#elif AARCH == 64
+
+// Circle maps everything behind the kernel code as privileged execute-never
+// 64 KB pages (lib/translationtable64.cpp): a level 2 table with an entry per
+// 512 MB, each pointing to a level 3 table of 8192 page descriptors. Dynarec
+// buffers live in the heap or in .bss, so their pages lose PXN here.
+int ra_libc_make_executable(void *pStart, unsigned long nLength)
+{
+	if (nLength == 0)
+	{
+		return 0;
+	}
+
+	static const u64 PAGE_SIZE_64K = 0x10000;
+	static const u64 TABLE_ADDRESS_MASK = 0x0000FFFFFFFF0000ULL;
+	static const u64 DESC_PXN = 1ULL << 53;
+
+	u64 nTTBR;
+	asm volatile ("mrs %0, ttbr0_el1" : "=r" (nTTBR));
+	const u64 *pLevel2 = (const u64 *)(nTTBR & TABLE_ADDRESS_MASK);
+
+	const u64 nEnd = (u64)pStart + nLength;
+	for (u64 nAddress = (u64)pStart & ~(PAGE_SIZE_64K - 1); nAddress < nEnd; nAddress += PAGE_SIZE_64K)
+	{
+		const u64 nTable = pLevel2[nAddress >> 29];
+		if ((nTable & 3) != 3)
+		{
+			return -1;
+		}
+		u64 *pPage = (u64 *)(nTable & TABLE_ADDRESS_MASK) + ((nAddress >> 16) & 0x1FFF);
+		if ((*pPage & 3) != 3)
+		{
+			return -1;
+		}
+		*pPage &= ~DESC_PXN;
+	}
+
+	asm volatile ("dsb ishst\n"
+		      "tlbi vmalle1is\n"
+		      "dsb ish\n"
+		      "isb" : : : "memory");
+	return 0;
+}
+
+extern "C" void ra_libc_clear_cache(void *pBegin, void *pEnd)
+{
+	__builtin___clear_cache((char *)pBegin, (char *)pEnd);
+}
+
+extern "C" void ra_libc_sync_code_caches(void)
+{
+	CleanDataCache();
+	InvalidateInstructionCache();
+}
+
 #else
 
 int ra_libc_make_executable(void *, unsigned long)

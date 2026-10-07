@@ -34,6 +34,7 @@ async function fetchFirmware(files, circleHome) {
   for (const file of files) {
     const target = path.join(cacheDir, file);
     if (fs.existsSync(target) && fs.statSync(target).size > 0) continue;
+    fs.mkdirSync(path.dirname(target), { recursive: true });
 
     const url = `https://github.com/raspberrypi/firmware/raw/${revision}/boot/${file}`;
     console.log(`FETCH   ${url}`);
@@ -117,7 +118,7 @@ export function buildImage(image, sourceDir) {
 }
 
 export async function assembleSdCard(options) {
-  const { configDir, outputDir, image, firmware, kernelImage, kernelName, circleHome } = options;
+  const { configDir, outputDir, image, firmware, kernelImage, kernelName, circleHome, extraFiles = [] } = options;
 
   const firmwareDir = await fetchFirmware(firmware, circleHome);
 
@@ -125,10 +126,14 @@ export async function assembleSdCard(options) {
   // output folder survive a rebuild.
   fs.mkdirSync(outputDir, { recursive: true });
   for (const file of firmware) {
+    fs.mkdirSync(path.dirname(path.join(outputDir, file)), { recursive: true });
     fs.copyFileSync(path.join(firmwareDir, file), path.join(outputDir, file));
   }
   for (const file of fs.readdirSync(configDir)) {
     fs.copyFileSync(path.join(configDir, file), path.join(outputDir, file));
+  }
+  for (const file of extraFiles) {
+    fs.copyFileSync(file, path.join(outputDir, path.basename(file)));
   }
   fs.copyFileSync(kernelImage, path.join(outputDir, kernelName));
   console.log(`SDCARD  ${rel(outputDir)}/`);

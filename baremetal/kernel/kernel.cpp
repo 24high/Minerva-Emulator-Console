@@ -2,7 +2,9 @@
 #include "rom_browser.h"
 
 #include <circle/string.h>
-#ifdef RA_BAREMETAL_GPI_CASE
+#ifdef RA_BAREMETAL_GPI_CASE2
+#include <circle/sound/usbsoundbasedevice.h>
+#elif defined(RA_BAREMETAL_GPI_CASE)
 #include <circle/sound/pwmsoundbasedevice.h>
 #else
 #include <circle/sound/hdmisoundbasedevice.h>
@@ -49,7 +51,12 @@ static const uint64_t SPLASH_MIN_USEC = 1500000;
 
 CKernel *CKernel::s_pThis = 0;
 #endif
-#ifdef RA_BAREMETAL_GPI_CASE
+#ifdef RA_BAREMETAL_GPI_CASE2
+// The GPi Case 2 has a USB sound card for its speaker and headphone jack.
+// It is opened at 48 kHz; CircleAudio resamples the cores' rates to that.
+static const char AUDIO_OUTPUT_NAME[] = "usb";
+static const unsigned USB_AUDIO_SAMPLE_RATE = 48000;
+#elif defined(RA_BAREMETAL_GPI_CASE)
 // The GPi Case feeds PWM audio (GPIO18/19) into its own amplifier.
 static const char AUDIO_OUTPUT_NAME[] = "pwm";
 static const unsigned PWM_AUDIO_CHUNK_SIZE = 2048;
@@ -460,6 +467,16 @@ TShutdownMode CKernel::Run(void)
 		switch (RunGame(pSelectedCore, selectedRom))
 		{
 		case GameEndExit:
+			if (pSelectedCore && pSelectedCore->n64Options)
+			{
+				// The N64 core is not made to be started again in the same
+				// run: save, then come back to the ROM browser by a reboot.
+				m_Logger.Write(FromKernel, LogNotice, "N64 game ended, rebooting to the ROM browser");
+				m_Runner.FlushSaves();
+				SaveClock();
+				WriteLogFile();
+				return ShutdownReboot;
+			}
 			StopGame();
 			break;
 
@@ -504,7 +521,11 @@ CKernel::TGameEnd CKernel::RunGame(const LibretroCore *pSelectedCore, const char
 		Status("audio allocation failed; muted");
 		m_Logger.Write(FromKernel, LogError, "Audio allocation failed");
 	}
+#ifdef RA_BAREMETAL_GPI_CASE2
+	else if (!m_Audio.Init(m_pSound, audioSampleRate, USB_AUDIO_SAMPLE_RATE))
+#else
 	else if (!m_Audio.Init(m_pSound, audioSampleRate))
+#endif
 	{
 		AudioMessage.Format("audio %s failed; muted", AUDIO_OUTPUT_NAME);
 		Status(AudioMessage);
@@ -741,7 +762,10 @@ void CKernel::PanicHandler(void)
 
 CSoundBaseDevice *CKernel::CreateSoundDevice(unsigned sampleRate)
 {
-#ifdef RA_BAREMETAL_GPI_CASE
+#ifdef RA_BAREMETAL_GPI_CASE2
+	(void)sampleRate;
+	return new CUSBSoundBaseDevice(USB_AUDIO_SAMPLE_RATE);
+#elif defined(RA_BAREMETAL_GPI_CASE)
 	return new CPWMSoundBaseDevice(&m_Interrupt, sampleRate, PWM_AUDIO_CHUNK_SIZE);
 #else
 	return new CHDMISoundBaseDevice(&m_Interrupt, sampleRate, HDMI_AUDIO_CHUNK_SIZE);

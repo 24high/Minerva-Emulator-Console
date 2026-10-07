@@ -1,68 +1,84 @@
-# RetroArch/libretro Bare-Metal Circle MVP
+# Minerva Console: der Bare-Metal-Kernel
 
-This directory is the first practical slice of a Raspberry Pi 5 bare-metal
-RetroArch direction: a small Circle application that acts as a static libretro
-runner. It is intentionally not the full RetroArch frontend yet.
+Minerva Console ist ein Circle-Kernel, der libretro-Cores statisch gelinkt
+ohne Betriebssystem ausführt (Spieleliste mit Kacheln, Spielstände, Start in
+etwa 5 Sekunden). Es gibt ihn für drei Geräte:
 
-## Status
+| Gerät | Board-Profil | Build | Kernel | SD-Karte | Image |
+|---|---|---|---|---|---|
+| Retroflag GPi Case, Raspberry Pi Zero / Zero W | `gpi` | `npm run build:gpi` | `kernel.img` (32 Bit, 15 Cores) | `output-gpi/` | `dist/minerva-gpi-zero.img` |
+| Retroflag GPi Case 2, Compute Module 4 | `gpi2` | `npm run build:gpi2` | `kernel8-rpi4.img` (64 Bit, 16 Cores mit N64) | `output-gpi2/` | `dist/minerva-gpi2-cm4.img` |
+| Raspberry Pi 5 am Fernseher | `pi5` | `npm run build:rpi5` | `kernel_2712.img` (64 Bit, 16 Cores mit N64) | `output-rpi5/` | `dist/minerva-rpi5.img` |
 
-- Target: Raspberry Pi 5, AArch64, Circle.
-- Output: Circle normally emits `kernel_2712.img` for Pi 5.
-- Core loading: static only.
-- Included test core: `libretro/builtin_pattern_core.cpp`.
-- Video: Circle screen framebuffer path, RGB565-oriented.
-- Audio: HDMI sound device path, signed 16-bit stereo batches.
-- Input: Circle USB HID gamepad mapped to RetroPad.
-- Filesystem: SD card `emmc1-1` mounted through Circle native FAT.
+Alle drei bauen das Core-Bündel `--core=all`. `build.mjs` übersetzt Circle,
+die Cores und den Runner direkt, ohne `make` (Circle als `circle/` neben
+`baremetal/` oder per `CIRCLEHOME=...`). Das Image ist 256 MB groß,
+`SD_IMAGE_MB=4096` macht es 4 GB. Das GPi Case ist auf dem Gerät getestet,
+GPi Case 2 und Pi 5 bisher nur emuliert (siehe unten).
 
-## Build outline with Node.js
+### Ältere Einzel-Builds für den Pi 5
 
-Clone Circle next to this repository as `circle` or pass
-`CIRCLEHOME=/path/to/circle`. The Node build script compiles the required
-Circle libraries and this runner directly; it does not call `make`.
+Aus der Anfangszeit gibt es für das Board `pi5` noch Kernel mit einem Core:
+`--core=pattern` (Testbild, `npm run build:baremetal`), `--core=fceumm`
+(NES, `npm run build:baremetal:nes`, ROM per `--rom=<Name>`),
+`--core=n64` und `--core=multi` (NES + N64). Sie landen unter
+`baremetal/build-node/<core>/kernel_2712.img`; auf die SD-Karte gehören dazu
+`bcm2712-rpi-5-b.dtb`, `overlays/bcm2712d0.dtbo` und die Dateien aus
+`baremetal/rpi5/`.
 
-From the repository root:
+## Raspberry Pi 5 und GPi Case 2 (Compute Module 4)
 
-```sh
-npm run build:baremetal
-```
+`--core=all` gibt es auch für 64 Bit: `npm run build:rpi5` (Board `pi5`,
+Cortex-A76, HDMI 1080p, USB-Pad) und `npm run build:gpi2` (Board `gpi2`,
+CM4/BCM2711, Cortex-A72). Beide enthalten die 15 Cores des GPi-Builds plus
+N64 (Mupen64Plus-Next mit ARM64-Dynarec, RDP angrylion auf mehreren Kernen).
+SD-Karte: `output-rpi5/` bzw. `output-gpi2/`, Images
+`dist/minerva-rpi5.img` und `dist/minerva-gpi2-cm4.img`
+(`SD_IMAGE_MB=4096` für 4 GB). Toolchain: `aarch64-none-elf` 15.2.rel1 in
+`./toolchain`.
 
-Der NES-Prototyp mit statisch gelinktem FCEUmm-Core wird so gebaut:
+GPi Case 2 (Werte aus RetroFlags `GPiCase2-Script`, `baremetal/gpi2/config.txt`):
 
-```sh
-npm run build:baremetal:nes
-```
+| Teil | Linux | hier |
+|---|---|---|
+| Bildschirm 640×480 | `dtoverlay=dpi24`, `dpi_output_format=0x00016` | DPI-Zeilen in `config.txt`, Pins 0-17/20-25 ALT2 wie beim GPi Case (`circle_gpi.cpp`) |
+| Ton | USB-Soundkarte im Gehäuse (`snd_usb_audio`) | `CUSBSoundBaseDevice` mit 48 kHz, `CircleAudio` rechnet die Core-Raten linear um |
+| Controller, Soundkarte | `dtoverlay=dwc2,dr_mode=host` | interner xHCI des BCM2711 (`USE_XHCI_INTERNAL`, `otg_mode=1`) |
+| Ein/Aus | `SafeShutdown_gpi2.py`: GPIO26 Schalter, GPIO27 Halten | wie beim GPi Case |
+| Dock (HDMI) | GPIO18 high, Skript tauscht `config.txt` und startet neu | noch nicht unterstützt |
 
-Oder direkt mit eigenen Parametern:
+Der Kernel ist für den CM4 Lite (Boot von der SD-Karte); `armstub8-rpi4.bin`
+baut `build.mjs` aus Circles `boot/armstub/armstub8.S`.
 
-```sh
-node baremetal/build.mjs --core=fceumm --rom=GAME.NES
-```
+Was 64 Bit anders braucht:
 
-The default output on Raspberry Pi 5 is:
+- Snes9x 2002 ohne `ARM_ASM` (32-Bit-Inline-Assembler) mit dem portablen
+  Renderer (`ppu_.c`, `gfx.c`, `tile.c`); dessen `memset32`/`memset16`
+  füllten nur Bytes, `patches/snes9x2002` schreibt ganze Wörter.
+- gpSP mit dem ARM64-Dynarec. Sein Code-Cache muss in BL-Reichweite
+  (±128 MB) des Programmcodes liegen; `mmap(PROT_EXEC)` gibt dafür auf AArch64
+  einen 12-MB-Block aus `.bss` direkt hinter dem Kernelcode
+  (`libc/newlib_glue.cpp`).
+- Ausführbare Seiten: Circle mappt alles hinter `.text` als PXN; dafür löscht
+  `ra_libc_make_executable` (`libc/circle_bridge.cpp`) das PXN-Bit in den
+  64-KB-Seiten (gpSP-Cache, N64-Dynarec in `.bss` über `mprotect`).
+- C++-Exceptions (fake-08s Lua): `crtbegin.o`/`crtend.o` registrieren
+  `.eh_frame` (wie Circles `Rules.mk`), und `DW.ref.__gxx_personality_v0`
+  bleibt bei der Core-Isolation global, sonst landete der Unwinder bei einer
+  verworfenen Kopie.
+- N64: `asm_defines_gas.h` erzeugt der Build aus `asm_defines.c` wie das
+  Makefile des Cores. Nach einem N64-Spiel führt Start+Select per Neustart ins
+  Menü (der Core ist nicht für einen zweiten Start im selben Lauf gemacht).
 
-```text
-baremetal/build-node/<core>/kernel_2712.img
-```
-
-For a `kernel8.img` experiment, rename the output and set `kernel=kernel8.img`
-in `config.txt`. The Circle/Pi-5-native filename remains `kernel_2712.img`.
-
-## SD card
-
-Minimum files on the FAT boot partition:
-
-```text
-kernel_2712.img
-bcm2712-rpi-5-b.dtb
-overlays/bcm2712d0.dtbo
-config.txt
-cmdline.txt
-```
-
-The current built-in pattern core does not require a ROM. For the NES/FCEUmm
-slice, put a short-name file such as `GAME.NES` into the FAT root and build
-with `npm run build:baremetal:nes` or pass `--rom=<name>`.
+Tests: `node baremetal/tests/arm-smoke.mjs --board=pi5` bzw. `--board=gpi2`
+mit allen Modi (`--fatfs`, `--sequence`, `--saves`, `--input`) unter
+`qemu-aarch64` (Cortex-A76 bzw. A72). Dafür gibt es eine eigene
+Programmstart-/Systemaufruf-Schicht (`tests/aarch64_linux_crt.c`,
+`tests/linux_syscall.h`). Ohne `--fatfs` läuft gpSP dort interpretiert (das
+`mmap` von Linux liegt außer Reichweite), mit `--fatfs` über die echte
+libc-Schicht mit Dynarec. N64 lässt sich ohne freies Testmodul mit Bootcode
+nicht im Test ausführen. Auf echter Hardware sind Pi 5 und GPi Case 2 noch
+nicht getestet.
 
 ## Raspberry Pi Zero / Zero W im Retroflag GPi Case
 

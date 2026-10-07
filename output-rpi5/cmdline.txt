@@ -1,0 +1,1 @@
+width=1920 height=1080 logdev=tty1 loglevel=4 fast=true

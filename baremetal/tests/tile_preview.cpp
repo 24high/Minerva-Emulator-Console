@@ -160,5 +160,17 @@ int main(int argc, char **argv)
 		DrawTileBrowser(screen.Surface(), screen.layout, "MINERVA CONSOLE", "", screen.entries, GameCount, 2, 0);
 		WritePpm(pDir, "hdmi-browser", screen.pixels, screen.width, screen.height);
 	}
+	{
+		// GPi Case 2 (CM4)
+		Screen screen(640, 480, cover, true);
+		DrawTileBrowser(screen.Surface(), screen.layout, "MINERVA CONSOLE", "", screen.entries, GameCount, 2, 0);
+		WritePpm(pDir, "gpi2-browser", screen.pixels, screen.width, screen.height);
+	}
+	{
+		// Pi 5 on a 1080p TV
+		Screen screen(1920, 1080, cover, true);
+		DrawTileBrowser(screen.Surface(), screen.layout, "MINERVA CONSOLE", "", screen.entries, GameCount, 2, 0);
+		WritePpm(pDir, "rpi5-browser", screen.pixels, screen.width, screen.height);
+	}
 	return 0;
 }

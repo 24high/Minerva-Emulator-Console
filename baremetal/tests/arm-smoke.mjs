@@ -2,9 +2,12 @@
 // Runs the bundled cores as built for the kernel (baremetal/build-node/gpi-all/
 // cores/*.o, including gpSP's ARM dynarec) on an emulated ARM1176 under
 // qemu-arm, as an ARM Linux program driven by smoke_main.cpp.
+// --board=pi5 does the same for the Pi 5 kernel (build-node/all, AArch64) on
+// an emulated Cortex-A76 under qemu-aarch64, --board=gpi2 for the CM4 kernel
+// of the GPi Case 2 (build-node/gpi2-all) on a Cortex-A72.
 //
-// Needs: a finished "npm run build:gpi", qemu-arm (or qemu-arm-static) and the
-// test ROMs from make-test-roms.mjs.
+// Needs: a finished "npm run build:gpi" (or build:rpi5), qemu-arm or
+// qemu-aarch64 (also as -static) and the test ROMs from make-test-roms.mjs.
 //
 // --fatfs links the real baremetal/libc layer and Circle's FatFs instead of
 // Linux file access, reading the ROMs from a FAT32 image like on the SD card.
@@ -23,7 +26,7 @@
 // smoke_main.cpp) and checks the GPi button layouts end to end: GBA Y/X as
 // L/R, SNES Select+Y/X as L/R, Select held back, tapped and passed through.
 //
-// usage: node baremetal/tests/arm-smoke.mjs [--fatfs [--options=<file>]] [--sequence | --saves | --input] [rom ...]
+// usage: node baremetal/tests/arm-smoke.mjs [--board=pi5|gpi2] [--fatfs [--options=<file>]] [--sequence | --saves | --input] [rom ...]
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -33,8 +36,17 @@ import { buildImage } from "../sdcard.mjs";
 
 const testsDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(testsDir, "..");
-const buildDir = path.join(projectRoot, "build-node", "gpi-all");
-const outDir = path.join(projectRoot, "build-node", "arm-smoke");
+// --board=pi5 / --board=gpi2 (CM4): the AArch64 kernels.
+const boardArg = process.argv.find((arg) => arg.startsWith("--board="));
+const AARCH64_BOARDS = {
+  "--board=pi5": { buildDir: "all", outDir: "aarch64-smoke", cpu: "cortex-a76" },
+  "--board=gpi2": { buildDir: "gpi2-all", outDir: "aarch64-smoke-gpi2", cpu: "cortex-a72" },
+};
+const aarch64Board = AARCH64_BOARDS[boardArg];
+const aarch64 = Boolean(aarch64Board);
+const buildDir = path.join(projectRoot, "build-node", aarch64 ? aarch64Board.buildDir : "gpi-all");
+const outDir = path.join(projectRoot, "build-node", aarch64 ? aarch64Board.outDir : "arm-smoke");
+const qemuCpu = aarch64 ? aarch64Board.cpu : "arm1176";
 const romDir = path.join(projectRoot, "build-node", "test-roms");
 // Every isolated core of the kernel build (cores/<id>.o).
 const CORES = fs.readdirSync(path.join(buildDir, "cores"))
@@ -61,14 +73,15 @@ function kernelCommand(sourceName) {
       return [exe, args.filter((arg, i) => arg !== "-MMD" && arg !== "-MF" && args[i - 1] !== "-MF")];
     }
   }
-  throw new Error(`No kernel build of ${sourceName}; run "npm run build:gpi" first`);
+  throw new Error(`No kernel build of ${sourceName}; run the kernel build for ${boardArg || "--board=gpi"} first`);
 }
 
 function findQemu() {
-  for (const name of ["qemu-arm", "qemu-arm-static"]) {
+  const names = aarch64 ? ["qemu-aarch64", "qemu-aarch64-static"] : ["qemu-arm", "qemu-arm-static"];
+  for (const name of names) {
     if (run("sh", ["-c", `command -v ${name}`], { allowFailure: true }).status === 0) return name;
   }
-  throw new Error("qemu-arm not found");
+  throw new Error(`${names[0]} not found`);
 }
 
 const args = process.argv.slice(2);
@@ -78,7 +91,8 @@ const optionsFile = optionsArg ? path.resolve(optionsArg.slice("--options=".leng
 const useSequence = args.includes("--sequence");
 const useSaves = args.includes("--saves");
 const useInput = args.includes("--input");
-const romArgs = args.filter((arg) => !["--fatfs", "--sequence", "--saves", "--input"].includes(arg) && arg !== optionsArg);
+const romArgs = args.filter((arg) => !["--fatfs", "--sequence", "--saves", "--input"].includes(arg)
+  && arg !== optionsArg && arg !== boardArg);
 // MAME finds the driver by the name of the zip file, so its test ROM set is
 // invaders.zip, not test.zip.
 const ROM_EXTENSIONS = [".nes", ".gb", ".gbc", ".gba", ".sfc", ".md", ".sms", ".gg",
@@ -129,9 +143,23 @@ if (useFatfs) {
   objects.push(path.join(outDir, "shim.o"));
 }
 
+// AArch64: program start and newlib system calls of our own (no linux.specs
+// for aarch64-none-elf); with --fatfs the glue's come first and win.
+// crtbegin.o/crtend.o register .eh_frame for C++ exceptions, as in the kernel.
+const crtFile = (name) => run(gcc, [...cpuFlags, `-print-file-name=${name}`]).stdout.trim();
+if (aarch64) {
+  run(gcc, [...cpuFlags, "-O2", "-c", "-o", path.join(outDir, "crt.o"), path.join(testsDir, "aarch64_linux_crt.c")]);
+  objects.unshift(crtFile("crtbegin.o"));
+  objects.push(path.join(outDir, "crt.o"));
+}
+
 const binary = path.join(outDir, useFatfs ? "smoke-fatfs" : "smoke");
-run(cxx, [...cpuFlags, "-specs=linux.specs", "-static", "-o", binary, ...objects,
+// --gc-sections like the kernel link: it drops code the cores never call.
+// AArch64: the libraries explicitly, so that crtend.o (the end marker of
+// .eh_frame) comes after all of them.
+run(cxx, [...cpuFlags, ...(aarch64 ? ["-nostdlib", "-Wl,--gc-sections"] : ["-specs=linux.specs"]), "-static", "-o", binary, ...objects,
   ...CORES.map((core) => path.join(buildDir, "cores", `${core}.o`)), "-lm",
+  ...(aarch64 ? ["-Wl,--start-group", "-lstdc++", "-lm", "-lc", "-lgcc", "-Wl,--end-group", crtFile("crtend.o")] : []),
   // Like the kernel: the glue's syscalls/free and the test heap win over
   // libgloss-linux and newlib.
   ...(useFatfs ? ["-Wl,--allow-multiple-definition"] : [])]);
@@ -194,7 +222,7 @@ if (useSaves) {
     const name = path.basename(rom);
     const saves = [];
     for (let pass = 0; pass < 2; pass++) {
-      const result = run(qemu, ["-cpu", "arm1176", binary, frames, rom], { allowFailure: true, timeout: 600000, env });
+      const result = run(qemu, ["-cpu", qemuCpu, binary, frames, rom], { allowFailure: true, timeout: 600000, env });
       if (result.status !== 0) {
         console.log(`${name}: run ${pass + 1} failed (exit ${result.status})\n${result.stdout}${result.stderr}`);
       }
@@ -247,7 +275,7 @@ if (useInput) {
   for (const [name, what, buttons, caseFrames, expected] of cases) {
     const rom = roms.find((candidate) => path.basename(candidate) === name);
     if (!rom) throw new Error(`${name} missing, run make-test-roms.mjs`);
-    const result = run(qemu, ["-cpu", "arm1176", binary, String(caseFrames), rom],
+    const result = run(qemu, ["-cpu", qemuCpu, binary, String(caseFrames), rom],
       { allowFailure: true, timeout: 600000, env: { ...env, SMOKE_BUTTONS: buttons } });
     const line = `${result.stdout || ""}${result.stderr || ""}`.split("\n").map(clean).find((candidate) => candidate.startsWith(name)) || "";
     const match = line.match(/center=#([0-9a-f]{6})/);
@@ -262,7 +290,7 @@ if (useInput) {
 }
 
 for (const rom of roms) {
-  const result = run(qemu, ["-cpu", "arm1176", binary, frames, rom], { allowFailure: true, timeout: 600000, env });
+  const result = run(qemu, ["-cpu", qemuCpu, binary, frames, rom], { allowFailure: true, timeout: 600000, env });
   const output = `${result.stdout || ""}${result.stderr || ""}`.trim();
   console.log(output.split("\n").filter((line) => !/polyphase|\] listed |^listed /.test(line)).join("\n") || `${path.basename(rom)}: no output (exit ${result.status}, signal ${result.signal})`);
   const name = path.basename(rom);
@@ -282,7 +310,7 @@ for (const rom of roms) {
 if (useSequence) {
   const sequence = [...roms, ...roms];
   console.log(`\nSequence in one process: ${sequence.map((rom) => path.basename(rom)).join(", ")}`);
-  const result = run(qemu, ["-cpu", "arm1176", binary, frames, ...sequence], { allowFailure: true, timeout: 1200000, env });
+  const result = run(qemu, ["-cpu", qemuCpu, binary, frames, ...sequence], { allowFailure: true, timeout: 1200000, env });
   const lines = `${result.stdout || ""}${result.stderr || ""}`.split("\n");
   let position = 0;
   for (const rom of sequence) {

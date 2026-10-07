@@ -58,12 +58,23 @@ int munmap(void *addr, size_t len)
 	return 0;
 }
 
+// libc/circle_bridge.cpp
+int ra_libc_make_executable(void *pStart, unsigned long nLength);
+
+// The dynarec keeps its code in .bss, which Circle maps execute-never.
 int mprotect(void *addr, size_t len, int prot)
 {
-	(void)addr;
-	(void)len;
-	(void)prot;
+	if ((prot & PROT_EXEC) && ra_libc_make_executable(addr, len) != 0)
+	{
+		return -1;
+	}
 	return 0;
+}
+
+long sysconf(int name)
+{
+	(void)name;	// only _SC_PAGESIZE is asked for
+	return 4096;
 }
 
 char *strdup(const char *value)

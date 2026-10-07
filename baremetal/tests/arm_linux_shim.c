@@ -1,5 +1,5 @@
-// What baremetal/libc provides on the device, implemented with ARM Linux
-// system calls for the qemu-arm smoke test (newlib + libgloss-linux lack them).
+// What baremetal/libc provides on the device, implemented with Linux system
+// calls for the qemu-arm / qemu-aarch64 smoke test (newlib lacks them).
 #include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -9,49 +9,28 @@
 
 #include "dirent.h"
 
-static long Syscall6(long number, long a, long b, long c, long d, long e, long f)
-{
-	register long r0 __asm__("r0") = a;
-	register long r1 __asm__("r1") = b;
-	register long r2 __asm__("r2") = c;
-	register long r3 __asm__("r3") = d;
-	register long r4 __asm__("r4") = e;
-	register long r5 __asm__("r5") = f;
-	register long r7 __asm__("r7") = number;
-	__asm__ volatile ("svc #0"
-		: "+r" (r0)
-		: "r" (r1), "r" (r2), "r" (r3), "r" (r4), "r" (r5), "r" (r7)
-		: "memory");
-	return r0;
-}
-
-static long Result(long value)
-{
-	if (value < 0 && value > -4096)
-	{
-		errno = (int)-value;
-		return -1;
-	}
-	return value;
-}
+#include "linux_syscall.h"
 
 // Address hints are ignored like on the device; a mapping right behind the
-// program would also stop newlib's brk-based malloc from growing.
+// program would also stop newlib's brk-based malloc from growing. (gpSP's
+// AArch64 dynarec needs its cache within BL range of its code, which only
+// the kernel's code area in libc/newlib_glue.cpp provides: here, without
+// --fatfs, it runs interpreted.)
 void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 {
 	(void)addr;
-	const long value = Syscall6(192, 0, (long)length, prot, flags, fd, (long)(offset >> 12));
+	const long value = LinuxMmap(0, (unsigned long)length, prot, flags, fd, (long)offset);
 	return value < 0 && value > -4096 ? (errno = (int)-value, (void *)-1) : (void *)value;
 }
 
 int munmap(void *addr, size_t length)
 {
-	return (int)Result(Syscall6(91, (long)addr, (long)length, 0, 0, 0, 0));
+	return (int)LinuxResult(LinuxMunmap(addr, length));
 }
 
 int mprotect(void *addr, size_t length, int prot)
 {
-	return (int)Result(Syscall6(125, (long)addr, (long)length, prot, 0, 0, 0));
+	return (int)LinuxResult(LinuxMprotect(addr, length, prot));
 }
 
 int madvise(void *addr, size_t length, int advice)
@@ -62,14 +41,14 @@ int madvise(void *addr, size_t length, int advice)
 	return 0;
 }
 
-// ARM Linux cacheflush(start, end, 0). Counted for smoke_main: under
-// qemu-arm a dynarec runs fine without it, on the device it does not.
+// Counted for smoke_main: under qemu a dynarec runs fine without it, on the
+// device it does not.
 unsigned long ra_smoke_cache_syncs;
 
 void ra_libc_clear_cache(void *begin, void *end)
 {
 	ra_smoke_cache_syncs++;
-	Syscall6(0x0f0002, (long)begin, (long)end, 0, 0, 0, 0);
+	LinuxCacheFlush(begin, end);
 }
 
 // Writes a file for smoke_main's CircleFs stub. newlib for arm-none-eabi uses
@@ -77,13 +56,13 @@ void ra_libc_clear_cache(void *begin, void *end)
 // cannot create files here; use the Linux values directly.
 int ra_smoke_write_file(const char *path, const void *data, unsigned long size)
 {
-	const long fd = Syscall6(5, (long)path, 0x241, 0644, 0, 0, 0);	// open(O_WRONLY|O_CREAT|O_TRUNC)
+	const long fd = LinuxOpen(path, LINUX_O_WRONLY_CREAT_TRUNC, 0644);
 	if (fd < 0)
 	{
 		return 0;
 	}
-	const long written = Syscall6(4, fd, (long)data, (long)size, 0, 0, 0);
-	Syscall6(6, fd, 0, 0, 0, 0, 0);	// close
+	const long written = LinuxWrite(fd, data, (long)size);
+	LinuxClose(fd);
 	return written == (long)size;
 }
 
@@ -95,7 +74,7 @@ char *getcwd(char *buf, size_t size)
 		buf = s_Buffer;
 		size = sizeof s_Buffer;
 	}
-	return Syscall6(183, (long)buf, (long)size, 0, 0, 0, 0) < 0 ? 0 : buf;	// getcwd
+	return LinuxGetcwd(buf, size) < 0 ? 0 : buf;
 }
 
 // Directory listings are not needed for the test (see opendir below).
@@ -126,10 +105,14 @@ void ra_libc_sync_code_caches(void)
 {
 }
 
+// On AArch64 libgcc's own __clear_cache is the real one (and what the
+// builtin calls).
+#ifndef __aarch64__
 void __clear_cache(void *begin, void *end)
 {
 	ra_libc_clear_cache(begin, end);
 }
+#endif
 
 // No directory listing is needed for the test.
 DIR *opendir(const char *name)

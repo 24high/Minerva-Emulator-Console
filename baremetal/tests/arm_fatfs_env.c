@@ -1,5 +1,5 @@
 // For arm-smoke.mjs --fatfs: runs the real baremetal/libc/newlib_glue.cpp
-// and Circle's FatFs under qemu-arm. Provides what Circle provides on the
+// and Circle's FatFs under qemu-arm / qemu-aarch64. Provides what Circle provides on the
 // device: the ra_libc_* bridge, a heap with Circle's 32-byte block alignment
 // (malloc/calloc stay "Circle's" like in the kernel) and a FatFs disk driver
 // that reads and writes a FAT image file (SMOKE_IMAGE) with Linux system
@@ -11,25 +11,11 @@
 #include <fatfs/ff.h>
 #include <fatfs/diskio.h>
 
-static long Syscall6(long number, long a, long b, long c, long d, long e, long f)
-{
-	register long r0 __asm__("r0") = a;
-	register long r1 __asm__("r1") = b;
-	register long r2 __asm__("r2") = c;
-	register long r3 __asm__("r3") = d;
-	register long r4 __asm__("r4") = e;
-	register long r5 __asm__("r5") = f;
-	register long r7 __asm__("r7") = number;
-	__asm__ volatile ("svc #0"
-		: "+r" (r0)
-		: "r" (r1), "r" (r2), "r" (r3), "r" (r4), "r" (r5), "r" (r7)
-		: "memory");
-	return r0;
-}
+#include "linux_syscall.h"
 
 static void WriteOut(const char *text)
 {
-	Syscall6(4, 1, (long)text, (long)strlen(text), 0, 0, 0);
+	LinuxWrite(1, text, (long)strlen(text));
 }
 
 // Heap: bump allocator in one large anonymous mapping, 32-byte aligned blocks
@@ -44,7 +30,7 @@ void *ra_libc_heap_alloc(unsigned long nSize)
 {
 	if (!s_HeapBase)
 	{
-		long base = Syscall6(192, 0, HEAP_SIZE, 3, 0x22, -1, 0);	// mmap2 RW, private|anonymous
+		long base = LinuxMmapAnonymous(HEAP_SIZE, 3);	// read/write
 		if (base < 0 && base > -4096)
 		{
 			return 0;
@@ -110,7 +96,7 @@ void ra_libc_unlock(void)
 int ra_libc_make_executable(void *pStart, unsigned long nLength)
 {
 	const uintptr_t nPage = (uintptr_t)pStart & ~(uintptr_t)4095;
-	const long result = Syscall6(125, (long)nPage, (long)((uintptr_t)pStart + nLength - nPage), 7, 0, 0, 0);
+	const long result = LinuxMprotect((void *)nPage, (uintptr_t)pStart + nLength - nPage, 7);
 	return result == 0 ? 0 : -1;
 }
 
@@ -120,7 +106,7 @@ unsigned long ra_smoke_cache_syncs;
 void ra_libc_clear_cache(void *pBegin, void *pEnd)
 {
 	ra_smoke_cache_syncs++;
-	Syscall6(0x0f0002, (long)pBegin, (long)pEnd, 0, 0, 0, 0);
+	LinuxCacheFlush(pBegin, pEnd);
 }
 
 // Whole-cache sync after loading a game; nothing to do under qemu-arm.
@@ -128,10 +114,14 @@ void ra_libc_sync_code_caches(void)
 {
 }
 
+// On AArch64 libgcc's own __clear_cache is the real one (and what the
+// builtin calls).
+#ifndef __aarch64__
 void __clear_cache(void *pBegin, void *pEnd)
 {
 	ra_libc_clear_cache(pBegin, pEnd);
 }
+#endif
 
 void ra_libc_log(const char *pLine)
 {
@@ -151,7 +141,7 @@ void ra_libc_panic(const char *pMessage)
 		WriteOut(pMessage);
 		WriteOut("\n");
 	}
-	Syscall6(1, exitCode, 0, 0, 0, 0, 0);	// exit
+	LinuxExit(exitCode);
 	while (1)
 	{
 	}
@@ -160,7 +150,7 @@ void ra_libc_panic(const char *pMessage)
 unsigned long long ra_libc_clock_usec(void)
 {
 	long tv[2] = { 0, 0 };
-	Syscall6(78, (long)tv, 0, 0, 0, 0, 0);	// gettimeofday
+	LinuxGettimeofday(tv);
 	return (unsigned long long)tv[0] * 1000000u + (unsigned long)tv[1];
 }
 
@@ -194,7 +184,7 @@ DSTATUS disk_initialize(BYTE pdrv)
 				pImage = *pEnv + 12;
 			}
 		}
-		s_ImageFd = pImage ? Syscall6(5, (long)pImage, 2, 0, 0, 0, 0) : -1;	// open(O_RDWR)
+		s_ImageFd = pImage ? LinuxOpen(pImage, LINUX_O_RDWR, 0) : -1;
 	}
 	return s_ImageFd >= 0 ? 0 : STA_NOINIT;
 }
@@ -206,9 +196,7 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
 		return RES_NOTRDY;
 	}
 	const unsigned long long nOffset = (unsigned long long)sector * 512;
-	// pread64(fd, buf, count, 0, offset_low, offset_high), EABI register pairs
-	const long result = Syscall6(180, s_ImageFd, (long)buff, (long)count * 512, 0,
-		(long)(nOffset & 0xFFFFFFFFu), (long)(nOffset >> 32));
+	const long result = LinuxPread(s_ImageFd, buff, (long)count * 512, nOffset);
 	return result == (long)count * 512 ? RES_OK : RES_ERROR;
 }
 
@@ -219,9 +207,7 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
 		return RES_NOTRDY;
 	}
 	const unsigned long long nOffset = (unsigned long long)sector * 512;
-	// pwrite64, same register layout as pread64
-	const long result = Syscall6(181, s_ImageFd, (long)buff, (long)count * 512, 0,
-		(long)(nOffset & 0xFFFFFFFFu), (long)(nOffset >> 32));
+	const long result = LinuxPwrite(s_ImageFd, buff, (long)count * 512, nOffset);
 	return result == (long)count * 512 ? RES_OK : RES_ERROR;
 }
 

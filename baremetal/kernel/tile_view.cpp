@@ -68,6 +68,7 @@ static uint16_t SystemAccent(const TileEntry &entry)
 		{ "C64",  TILE_RGB565(140, 140, 240) },
 		{ "PICO8", TILE_RGB565(255, 0, 77) },
 		{ "MAME", TILE_RGB565(96, 176, 240) },
+		{ "N64", TILE_RGB565(0, 152, 72) },
 	};
 	if (entry.isDirectory)
 	{

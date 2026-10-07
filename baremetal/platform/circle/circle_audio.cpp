@@ -3,16 +3,28 @@
 static const unsigned AudioQueueMilliseconds = 320;
 
 CircleAudio::CircleAudio(void)
-:	m_pSound(0)
+:	m_pSound(0),
+	m_Step(0),
+	m_Phase(0)
 {
+	m_Previous[0] = m_Previous[1] = 0;
 }
 
-bool CircleAudio::Init(CSoundBaseDevice *pSound, unsigned sampleRate)
+bool CircleAudio::Init(CSoundBaseDevice *pSound, unsigned sampleRate, unsigned deviceRate)
 {
 	m_pSound = 0;
+	m_Step = 0;
+	m_Phase = 0;
+	m_Previous[0] = m_Previous[1] = 0;
 	if (!pSound)
 	{
 		return true;
+	}
+
+	if (deviceRate && sampleRate && deviceRate != sampleRate)
+	{
+		m_Step = (unsigned)(((unsigned long long)sampleRate << 16) / deviceRate);
+		sampleRate = deviceRate;	// the device's queue is primed below
 	}
 
 	if (!pSound->AllocateQueue(AudioQueueMilliseconds))
@@ -75,6 +87,12 @@ size_t CircleAudio::WriteFrames(const int16_t *samples, size_t frames)
 		return frames;
 	}
 
+	if (m_Step)
+	{
+		WriteResampled(samples, frames);
+		return frames;
+	}
+
 	const size_t bytes = frames * 2 * sizeof(int16_t);
 	const int written = m_pSound->Write(samples, bytes);
 	if (written <= 0)
@@ -85,4 +103,40 @@ size_t CircleAudio::WriteFrames(const int16_t *samples, size_t frames)
 	const size_t writtenFrames = (size_t)written / (2 * sizeof(int16_t));
 	(void)writtenFrames;
 	return frames;
+}
+
+// Linear interpolation from the core's rate to the device's: output frames
+// are taken at steps of m_Step between the previous and the current input
+// frame.
+void CircleAudio::WriteResampled(const int16_t *samples, size_t frames)
+{
+	int16_t out[256 * 2];
+	unsigned outFrames = 0;
+
+	for (size_t i = 0; i < frames; i++)
+	{
+		const int16_t *current = samples + i * 2;
+		while (m_Phase < 0x10000)
+		{
+			for (unsigned channel = 0; channel < 2; channel++)
+			{
+				const int from = m_Previous[channel];
+				out[outFrames * 2 + channel] = (int16_t)(from + (((current[channel] - from) * (int)m_Phase) >> 16));
+			}
+			m_Phase += m_Step;
+			if (++outFrames == sizeof out / sizeof out[0] / 2)
+			{
+				m_pSound->Write(out, outFrames * 2 * sizeof(int16_t));
+				outFrames = 0;
+			}
+		}
+		m_Phase -= 0x10000;
+		m_Previous[0] = current[0];
+		m_Previous[1] = current[1];
+	}
+
+	if (outFrames)
+	{
+		m_pSound->Write(out, outFrames * 2 * sizeof(int16_t));
+	}
 }

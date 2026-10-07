@@ -95,12 +95,19 @@ class CircleAudio
 {
 public:
 	CircleAudio(void);
-	bool Init(CSoundBaseDevice *pSound, unsigned sampleRate);
+	// deviceRate: the rate the sound device runs at, if it differs from the
+	// core's sampleRate (USB sound cards take only a few rates); 0 = the same.
+	bool Init(CSoundBaseDevice *pSound, unsigned sampleRate, unsigned deviceRate = 0);
 	void WriteSample(int16_t left, int16_t right);
 	size_t WriteFrames(const int16_t *samples, size_t frames);
 
 private:
+	void WriteResampled(const int16_t *samples, size_t frames);
+
 	CSoundBaseDevice *m_pSound;
+	unsigned m_Step;		// input frames per output frame, 16.16; 0 = no resampling
+	unsigned m_Phase;		// position between m_Previous and the next input frame, 16.16
+	int16_t m_Previous[2];
 };
 
 class CircleInput

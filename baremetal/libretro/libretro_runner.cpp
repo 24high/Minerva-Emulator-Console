@@ -117,6 +117,9 @@ DECLARE_LIBRETRO_CORE(cap32)
 DECLARE_LIBRETRO_CORE(frodo)
 DECLARE_LIBRETRO_CORE(fake08)
 DECLARE_LIBRETRO_CORE(mame2000)
+#ifdef RA_BAREMETAL_BUNDLE_N64
+DECLARE_LIBRETRO_CORE(n64)
+#endif
 
 // Console games fill the 4:3 screen like on a TV; handheld systems keep the
 // picture shape their core reports (see LibretroSystem::handheld).
@@ -171,6 +174,11 @@ static const LibretroCore g_Cap32Core = LIBRETRO_CORE_ENTRY_PORT("Caprice32", ca
 static const LibretroCore g_FrodoCore = LIBRETRO_CORE_ENTRY_EX("Frodo", frodo, 0x1000000, ASPECT_4_3, 0);
 static const LibretroCore g_Fake08Core = LIBRETRO_CORE_ENTRY_EX("fake-08", fake08, 0x100000, 0.0f, 0);
 static const LibretroCore g_Mame2000Core = LIBRETRO_CORE_ENTRY_EX("MAME 2000", mame2000, 0x4000000, 0.0f, g_Mame2000Options);
+#ifdef RA_BAREMETAL_BUNDLE_N64
+// N64 on the Pi 5 only: it needs the AArch64 dynarec and the other CPU cores
+// for the RDP.
+static const LibretroCore g_N64Core = LIBRETRO_CORE_ENTRY("Mupen64Plus-Next", n64, 0x4000000, true);
+#endif
 
 // Button layouts for the GPi Case, which has A, B, X and Y only (see
 // button_mapper.h). Systems with 2 buttons use A and B as they are. The
@@ -242,6 +250,11 @@ static const LibretroSystem g_Systems[] = {
 	{ "p8.png", "PICO8", &g_Fake08Core,  true,  0 },
 	// Arcade ROM sets (zip): buttons 1-4 on B, A, Y, X, 5 and 6 with Select.
 	{ "zip", "MAME", &g_Mame2000Core,    true,  &g_SixButtons },
+#ifdef RA_BAREMETAL_BUNDLE_N64
+	{ "z64", "N64",  &g_N64Core,         false, 0 },
+	{ "n64", "N64",  &g_N64Core,         false, 0 },
+	{ "v64", "N64",  &g_N64Core,         false, 0 },
+#endif
 	{ 0, 0, 0, false, 0 }
 };
 #else

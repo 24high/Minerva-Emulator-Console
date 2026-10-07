@@ -8,6 +8,8 @@
     "build:baremetal:n64": "node baremetal/build.mjs --core=n64 --rom=GAME.Z64",
     "build:baremetal:multi": "node baremetal/build.mjs --core=multi",
     "build:gpi": "node baremetal/build.mjs --board=gpi --core=all",
+    "build:rpi5": "node baremetal/build.mjs --board=pi5 --core=all",
+    "build:gpi2": "node baremetal/build.mjs --board=gpi2 --core=all",
     "build:gpi:nes": "node baremetal/build.mjs --board=gpi --core=fceumm",
     "clean:baremetal": "node -e \"fs.rmSync('baremetal/build-node',{recursive:true,force:true})\""
   }
