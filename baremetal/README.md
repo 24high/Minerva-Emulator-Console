@@ -267,6 +267,7 @@ node baremetal/tests/arm-smoke.mjs --fatfs --sequence   # Spielwechsel, siehe un
 node baremetal/tests/arm-smoke.mjs --fatfs --saves      # Spielstände, siehe unten
 node baremetal/tests/arm-smoke.mjs --input              # Tastenbelegung, siehe unten
 node baremetal/tests/button-mapper-test.mjs             # Tastenlogik Bild für Bild (Host)
+node baremetal/tests/tile-preview.mjs                   # ROM-Browser als PNG (Host)
 ```
 
 `--input` lässt `input-snes.sfc` und `input-gba.gba` mit gedrückten Tasten
@@ -312,9 +313,23 @@ stehen. Schaltet man aus, stoppt der Kernel den Ton und gibt den Latch frei,
 das Case trennt dann die Stromversorgung. Die serielle Konsole entfällt, weil
 GPIO14/15 im Case DPI-Datenleitungen sind.
 
-Bedienung im ROM-Browser: Steuerkreuz hoch/runter wählt, links/rechts springt
-um 5 Einträge, A startet bzw. öffnet einen Ordner, B geht zurück. Das
-Steuerkreuz funktioniert im Hat-Modus (Standard) und im Achsen-Modus des Cases.
+Der ROM-Browser zeigt jedes Spiel als quadratische Kachel mit dem Namen
+darunter (auf dem GPi 3×2 Kacheln je Seite, die Fußzeile nennt den vollen
+Namen). Liegt neben dem Spiel ein Bild `<ROM-Name>.png` (z. B.
+`Pokemon - FireRed Version (USA).png`, auch `<Dateiname>.png` wie
+`Pokemon - FireRed Version (USA).gba.png`), wird es als Kachelbild genommen,
+eingepasst ins Quadrat; sonst das Bild des Systems. Die System-Bilder stammen
+von wowroms.com (`baremetal/assets/systems/<system>.png`, 152×152) und werden
+beim Build in den Kernel eingebettet (`gen/system_images.c`). Eigene PNGs
+dekodiert `stb_image` (`baremetal/third_party/stb`), bis 2048×2048 Pixel.
+Die Bilder laden nach und nach, die sichtbaren zuerst, und bleiben für den
+Ordner im Speicher. Layout und Zeichnen (`kernel/tile_view.cpp`) hängen nicht
+von Circle ab; `node baremetal/tests/tile-preview.mjs` rendert dieselben
+Ansichten auf dem PC nach `build-node/host-tests/previews/`.
+
+Bedienung: Steuerkreuz links/rechts wechselt die Kachel, hoch/runter die
+Reihe, A startet bzw. öffnet einen Ordner, B geht zurück. Das Steuerkreuz
+funktioniert im Hat-Modus (Standard) und im Achsen-Modus des Cases.
 
 Im Spiel beendet **Start + Select (½ Sekunde gemeinsam halten)** das Spiel und
 kehrt in den ROM-Browser zurück, an die Stelle des gestarteten Spiels. Der

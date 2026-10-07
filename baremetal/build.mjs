@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 import { assembleSdCard } from "./sdcard.mjs";
-import { writeSplashSource } from "./splash.mjs";
+import { writeSplashSource, writeSystemImagesSource } from "./splash.mjs";
 
 const repoRoot = path.resolve(path.join(path.dirname(fileURLToPath(import.meta.url)), ".."));
 const projectRoot = path.join(repoRoot, "baremetal");
@@ -588,6 +588,7 @@ const appBaseSourcesNoInput = [
   "kernel/kernel.cpp",
   "kernel/memory.cpp",
   "kernel/rom_browser.cpp",
+  "kernel/tile_view.cpp",
   "libretro/libretro_runner.cpp",
   "platform/circle/circle_log.cpp",
   "platform/circle/circle_timer.cpp",
@@ -1460,6 +1461,14 @@ function buildCoreArchive() {
   };
 }
 
+// Placeholder pictures of the ROM browser tiles (kernel/tile_view.cpp).
+function generateSystemImages() {
+  const output = path.join(config.buildDir, "gen", "system_images.c");
+  const count = writeSystemImagesSource(path.join(projectRoot, "assets", "systems"), output);
+  console.log(`SYSTEMS assets/systems -> ${count} tile pictures`);
+  return output;
+}
+
 function generateSplash() {
   const output = path.join(config.buildDir, "gen", "splash_image.c");
   const { width, height } = writeSplashSource(config.splash, board.screen.width, board.screen.height, output);
@@ -1496,7 +1505,11 @@ async function main() {
   const libsdcard = archive("libsdcard.a", sdCardSources);
   const libff = board.fatfs ? [archive("libff.a", ffSources)] : [];
   const usesSplash = config.splash && coreBuild.appSources.some((source) => path.basename(source) === "circle_splash.cpp");
-  const generatedSources = usesSplash ? [generateSplash()] : [];
+  const usesTiles = coreBuild.appSources.some((source) => path.basename(source) === "tile_view.cpp");
+  const generatedSources = [
+    ...(usesSplash ? [generateSplash()] : []),
+    ...(usesTiles ? [generateSystemImages()] : []),
+  ];
   const appObjects = [...coreBuild.appSources, ...generatedSources].map((source) => compile(source));
   const { libgcc, libm, libc, libnosys, libstdcxx } = parseLibs();
   const coreArchives = coreBuild.archives;

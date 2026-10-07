@@ -167,10 +167,12 @@ Copy your games anywhere onto the SD card, folders and long file names are fine.
 
 | Button | Action |
 |---|---|
-| D-pad up / down | Select |
-| D-pad left / right | Jump 5 entries |
+| D-pad left / right | Previous / next tile |
+| D-pad up / down | Row up / down |
 | A | Start game or open folder |
 | B | Back to the parent folder |
+
+Every game is shown as a square tile with its name below. To give a game its own picture, put a PNG with the same name next to it, for example `Pokemon - FireRed Version (USA).png` (or `Pokemon - FireRed Version (USA).gba.png`). Games without a picture show the logo of their system.
 
 **In game**
 
@@ -272,6 +274,8 @@ Project Link: [https://github.com/24high/Minerva-Emulator-Console](https://githu
 * [RetroArch and libretro](https://www.libretro.com)
 * [FCEUmm](https://github.com/libretro/libretro-fceumm), [Gambatte](https://github.com/libretro/gambatte-libretro), [Snes9x 2002](https://github.com/libretro/snes9x2002), [PicoDrive](https://github.com/libretro/picodrive) and [gpSP](https://github.com/libretro/gpsp)
 * [Retroflag](https://retroflag.com) for the GPi Case
+* [stb_image](https://github.com/nothings/stb) by Sean Barrett, used to load the tile pictures
+* The system logos on the tiles are taken from [wowroms.com](https://wowroms.com/en/all-roms)
 * Bashar Astifan and [Gustave Monce](https://github.com/gus33000) for the UWP port this repository started from
 * [Best-README-Template](https://github.com/othneildrew/Best-README-Template)
 * [Img Shields](https://shields.io)
