@@ -48,12 +48,15 @@ function run(exe, args, options = {}) {
   return result;
 }
 
-// The exact compile command of a kernel source, from build.mjs' stamp files.
+// The exact compile command of a kernel source, from build.mjs' stamp files,
+// without the dependency file options (those would overwrite the kernel's).
 function kernelCommand(sourceName) {
   const objDir = path.join(buildDir, "obj");
   for (const stamp of fs.readdirSync(objDir).filter((file) => file.endsWith(".cmd"))) {
     const [exe, args] = JSON.parse(fs.readFileSync(path.join(objDir, stamp), "utf8"));
-    if (args[args.length - 1].endsWith(sourceName)) return [exe, args];
+    if (args[args.length - 1].endsWith(sourceName)) {
+      return [exe, args.filter((arg, i) => arg !== "-MMD" && arg !== "-MF" && args[i - 1] !== "-MF")];
+    }
   }
   throw new Error(`No kernel build of ${sourceName}; run "npm run build:gpi" first`);
 }

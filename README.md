@@ -1,113 +1,304 @@
-# MINERVA Emulator Console
-The MINERVA Emulator Console is a Circle Bare Metal port of RetroArch for ARM.<br>
-This allows ultra fast booting to the rom selection without having to boot an operating system first.<br><br>
+<a id="readme-top"></a>
 
 
 
-<p align="center">
-  <img src="assets/logo.png" width="176"><br>
-  <b>RetroArch UWP ARM32 only</b><br/>
-  <a href="./cores">Cores</a> |
-  <a href="https://github.com/libretro/RetroArch">Original Project</a> 
-  <br/><br/>
-  <img src="assets/screen.png"><br/><br/>
-</p>
+<!-- PROJECT SHIELDS -->
+[![Contributors][contributors-shield]][contributors-url]
+[![Forks][forks-shield]][forks-url]
+[![Stargazers][stars-shield]][stars-url]
+[![Issues][issues-shield]][issues-url]
+[![GPL-3.0 License][license-shield]][license-url]
 
 
-# RetroArch Readme
-# About
 
-After long time of work I present to you this UWP release of RetroArch for Windows (ARM32) devices
+<!-- PROJECT LOGO -->
+<br />
+<div align="center">
+  <a href="https://github.com/24high/Minerva-Emulator-Console">
+    <img src="baremetal/assets/splash.png" alt="Minerva Console boot screen" width="320" height="240">
+  </a>
 
-With more than 70+ core
+  <h3 align="center">Minerva Console</h3>
 
-
-# Target (ARM32)
-
-- Windows 15035+ Full cores
-- Windows 14393 with few cores
-- Windows 10586 with few cores
-- DirectX Feature level 11, 9.3 & 9.1
-
-
-## ARM64 or Latest
-
-- This repo for ARM32, legacy support only
-- Refer to the official repo for any updates [Click here](https://retroarch.com/?page=platforms)
-- Please don't ask or contact me for other than ARM32
-- This repo is not meant to be up-to date fork (nor redistribution)
-
-# UWP improvements
-
-This app supported by [UWP2Win32](https://github.com/basharast/UWP2Win32)
+  <p align="center">
+    A bare-metal retro console for the Raspberry Pi Zero in the Retroflag GPi Case.
+    <br />
+    <a href="baremetal/README.md"><strong>Explore the docs »</strong></a>
+    <br />
+    <br />
+    <a href="output-gpi">Ready-made SD card files</a>
+    &middot;
+    <a href="https://github.com/24high/Minerva-Emulator-Console/issues/new?labels=bug">Report Bug</a>
+    &middot;
+    <a href="https://github.com/24high/Minerva-Emulator-Console/issues/new?labels=enhancement">Request Feature</a>
+  </p>
+</div>
 
 
-# Cores updater
 
-The current cores downloader/updater linked with my repo at `docs/cores`
-
-if you want to help to get/fix more cores for ARM please submit pull request with the target core or contact me
-
-
-# Future
-
-- Help me add Dynarec for Flycast: [GitHub Issue here](https://github.com/flyinghead/flycast/issues/545)
-
-- ~~Help me to solve N64 issue: [GitHub Issue here](https://github.com/mupen64plus/mupen64plus-video-rice/issues/102)~~ [Solved]
-
-
-# Credits
-
-- <a href="https://www.retroarch.com/">RetroArch</a> Developed by RetroArch Team 
-
-
-- Bashar Astifan (UWP Improvements and ARM support)
-
-- [Gustave Monce](https://github.com/gus33000) (DLL dynamic loading solution)
-
-
-# Support
-
-RetroArch Team done great job to make this project if you would like to support them <a href="https://www.retroarch.com/index.php?page=donate">Click Here</a>
-
-
-# Building
-
-- You need SDKs: 19041 and 14393
-- Use Visual Studio 2022
-- Goto pkg\msvc-uwp
-- Use only `RetroArch-msvc2019-UWP.sln` 
-- You can build it as `ReleaseANGLE`
-- There is also Release 14393 (no much cores)
-- To ensure cores loaded correctly, you can make them built-in
-- Built-in cores must be at `pkg\msvc-uwp\RetroArch-msvc2019-UWP\cores`
+<!-- TABLE OF CONTENTS -->
+<details>
+  <summary>Table of Contents</summary>
+  <ol>
+    <li>
+      <a href="#about-the-project">About The Project</a>
+      <ul>
+        <li><a href="#supported-systems">Supported Systems</a></li>
+        <li><a href="#built-with">Built With</a></li>
+      </ul>
+    </li>
+    <li>
+      <a href="#getting-started">Getting Started</a>
+      <ul>
+        <li><a href="#prerequisites">Prerequisites</a></li>
+        <li><a href="#installation">Installation</a></li>
+      </ul>
+    </li>
+    <li><a href="#usage">Usage</a></li>
+    <li><a href="#roadmap">Roadmap</a></li>
+    <li><a href="#contributing">Contributing</a></li>
+    <li><a href="#license">License</a></li>
+    <li><a href="#contact">Contact</a></li>
+    <li><a href="#acknowledgments">Acknowledgments</a></li>
+  </ol>
+</details>
 
 
-## D3D 9.3 & 9.1
 
-- Use `ReleaseANGLE Legacy`
-- Or create new config from `ReleaseANGLE 14393 D3D` 
-- Define `IS_LEVEL_93` in project Preprocessors
-- Remove the following from project Preprocessors
-- - `HAVE_OZONE`
-- - `HAVE_XMB`
+<!-- ABOUT THE PROJECT -->
+## About The Project
 
-## Important
+Minerva Console runs libretro emulator cores directly on the hardware of a Raspberry Pi, without Linux or any other operating system underneath. It is built on the Circle bare-metal C++ environment. You flip the power switch of the GPi Case and a few seconds later you are in the game list.
 
-This project maintained for legacy hardware, when something don't work well on modern hardware
+Why bare metal:
+* No boot process to wait for and nothing to update or break in the background
+* The whole system is one kernel file on a FAT32 SD card
+* Turning the case off is safe at any time, saves are written before the power is cut
 
-please don't open issue for it, I have no interests to support other than ARM32
+The GPi Case normally needs a set of overlays and scripts on Linux for its screen, sound, controller and safe shutdown. Here the kernel handles all of that itself: the DPI display, PWM audio on GPIO18/19, the built-in controller (it shows up as an Xbox 360 pad) and the power switch.
 
-## WinRT Surface
+The project started as a bare-metal port of RetroArch for the Raspberry Pi 5, which is still in the repository. The original Windows UWP port this repository is based on is described in [README-UWP.md](README-UWP.md).
 
-I'm refering to the ARM32 old one, it was before super slow and the reason was:
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-- Only ANGLE was used to support older devices
-- ANGLE don't have support for feature level 9.1
-- It will fallback to WARP device (more like software render)
-- 5~ frames per seconds was expected (WARP is super slow)
-- With the latest update in theory it's expected to work under DirectX and should be fast.
 
-# Note
 
-I'm not affiliate with RetroArch or Libretro
+### Supported Systems
+
+| System | Core | File extensions |
+|---|---|---|
+| Nintendo Entertainment System | FCEUmm | `.nes` |
+| Game Boy / Game Boy Color | Gambatte | `.gb` `.dmg` `.gbc` |
+| Game Boy Advance | gpSP (with ARM dynarec) | `.gba` `.agb` |
+| Super Nintendo | Snes9x 2002 | `.sfc` `.smc` `.swc` `.fig` |
+| Mega Drive / Genesis, 32X | PicoDrive | `.md` `.gen` `.smd` `.bin` `.32x` |
+| Master System, Game Gear, SG-1000 | PicoDrive | `.sms` `.gg` `.sg` |
+
+All five cores are linked into a single kernel, the right one is picked by the file extension.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+
+
+### Built With
+
+* [![Circle][Circle-badge]][Circle-url]
+* [![libretro][libretro-badge]][libretro-url]
+* [![C++][Cpp-badge]][Cpp-url]
+* [![Raspberry Pi][RaspberryPi-badge]][RaspberryPi-url]
+* [![Node.js][Node-badge]][Node-url]
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+
+
+<!-- GETTING STARTED -->
+## Getting Started
+
+If you only want to play, copy the contents of [`output-gpi`](output-gpi) to a FAT32-formatted SD card, add your games and put the card into the GPi Case. Nothing has to be built for that.
+
+To build the kernel yourself, follow the steps below.
+
+### Prerequisites
+
+* A Linux PC
+* Node.js 18 or newer
+* Arm GNU Toolchain 15.2.rel1 for `arm-none-eabi` from [developer.arm.com](https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads), unpacked into `./toolchain`
+* For the SD card image: dosfstools and mtools
+  ```sh
+  sudo apt install dosfstools mtools
+  ```
+
+### Installation
+
+1. Clone the repo
+   ```sh
+   git clone https://github.com/24high/Minerva-Emulator-Console.git
+   cd Minerva-Emulator-Console
+   ```
+2. Get Circle
+   ```sh
+   git clone --depth 1 https://github.com/rsta2/circle.git circle
+   ```
+3. Get the cores
+   ```sh
+   git clone --depth 1 https://github.com/libretro/libretro-fceumm.git baremetal/cores/libretro-fceumm
+   git clone --depth 1 https://github.com/libretro/gambatte-libretro.git baremetal/cores/gambatte-libretro
+   git clone --depth 1 https://github.com/libretro/snes9x2002.git baremetal/cores/snes9x2002
+   git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/libretro/picodrive.git baremetal/cores/picodrive
+   git clone --depth 1 https://github.com/libretro/gpsp.git baremetal/cores/gpsp
+   ```
+4. Build the kernel and the SD card image
+   ```sh
+   npm run build:gpi
+   ```
+5. Flash `dist/minerva-gpi-zero.img` with Raspberry Pi Imager or `dd`, or copy the contents of `output-gpi/` to a FAT32 SD card. The build downloads the Raspberry Pi firmware files it needs.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+
+
+<!-- USAGE EXAMPLES -->
+## Usage
+
+Copy your games anywhere onto the SD card, folders and long file names are fine. Set the SAFE SHUTDOWN switch of the GPi Case to ON.
+
+**Game list**
+
+| Button | Action |
+|---|---|
+| D-pad up / down | Select |
+| D-pad left / right | Jump 5 entries |
+| A | Start game or open folder |
+| B | Back to the parent folder |
+
+**In game**
+
+| Button | Action |
+|---|---|
+| Start + Select (hold for half a second) | Back to the game list |
+| Power switch off | Saves, then turns the case off |
+
+The GPi Case only has A, B, X and Y. Systems with shoulder buttons get them on Y (L) and X (R):
+
+| System | Layout |
+|---|---|
+| NES, Game Boy, Master System, Game Gear | A and B as labelled |
+| Game Boy Advance | A, B, Y = L, X = R |
+| Super Nintendo | A, B, X, Y as labelled, Select + Y = L, Select + X = R |
+| Mega Drive (6-button pad) | Y = A, B = B, A = C, X = Y, Select + Y = X, Select + X = Z |
+
+On the Super Nintendo and the Mega Drive a short press of Select still reaches the game.
+
+**Saves**
+
+In-game saves work on every system. They are stored next to the game as `<game name>.srm` (Game Boy cartridges with a clock also get a `.rtc` file), the same format RetroArch uses. A save is written about a second after you save in the game, and again when you leave the game or turn the case off.
+
+**Core options**
+
+Options go into `minerva.cfg` in the root of the SD card, in RetroArch's format:
+```
+gambatte_gb_internal_palette = "GB - Light"
+picodrive_input1 = "3 button pad"
+```
+
+For more details, like the build options, the tests and how the cores are linked, please refer to the [documentation](baremetal/README.md) (German).
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+
+
+<!-- ROADMAP -->
+## Roadmap
+
+- [x] Raspberry Pi Zero / GPi Case port
+- [x] NES, Game Boy, GBA, SNES, Mega Drive, Master System, Game Gear
+- [x] In-game saves and clock for RTC cartridges
+- [x] Return to the game list with Start + Select
+- [ ] Save states
+- [ ] Faster ARM cores for the Mega Drive (Cyclone, DrZ80)
+- [ ] In-game menu (volume, reset)
+- [ ] Mega-CD
+
+See the [open issues](https://github.com/24high/Minerva-Emulator-Console/issues) for a full list of proposed features (and known issues).
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+
+
+<!-- CONTRIBUTING -->
+## Contributing
+
+If you have a fix or an idea, please fork the repo and create a pull request. You can also simply open an issue with the tag "enhancement".
+
+1. Fork the Project
+2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the Branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+Before a pull request, please run the tests in `baremetal/tests` (they run the cores on an emulated ARM1176 with qemu-arm).
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+
+
+<!-- LICENSE -->
+## License
+
+Distributed under the GNU General Public License v3.0. See `LICENSE` for more information.
+
+The emulator cores keep their own licenses. Snes9x 2002 and PicoDrive may not be used commercially, so the same applies to the kernel images that include them.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+
+
+<!-- CONTACT -->
+## Contact
+
+decipher
+
+Project Link: [https://github.com/24high/Minerva-Emulator-Console](https://github.com/24high/Minerva-Emulator-Console)
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+
+
+<!-- ACKNOWLEDGMENTS -->
+## Acknowledgments
+
+* [Circle](https://github.com/rsta2/circle) by Rene Stange
+* [RetroArch and libretro](https://www.libretro.com)
+* [FCEUmm](https://github.com/libretro/libretro-fceumm), [Gambatte](https://github.com/libretro/gambatte-libretro), [Snes9x 2002](https://github.com/libretro/snes9x2002), [PicoDrive](https://github.com/libretro/picodrive) and [gpSP](https://github.com/libretro/gpsp)
+* [Retroflag](https://retroflag.com) for the GPi Case
+* Bashar Astifan and [Gustave Monce](https://github.com/gus33000) for the UWP port this repository started from
+* [Best-README-Template](https://github.com/othneildrew/Best-README-Template)
+* [Img Shields](https://shields.io)
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+
+
+<!-- MARKDOWN LINKS & IMAGES -->
+<!-- https://www.markdownguide.org/basic-syntax/#reference-style-links -->
+[contributors-shield]: https://img.shields.io/github/contributors/24high/Minerva-Emulator-Console.svg?style=for-the-badge
+[contributors-url]: https://github.com/24high/Minerva-Emulator-Console/graphs/contributors
+[forks-shield]: https://img.shields.io/github/forks/24high/Minerva-Emulator-Console.svg?style=for-the-badge
+[forks-url]: https://github.com/24high/Minerva-Emulator-Console/network/members
+[stars-shield]: https://img.shields.io/github/stars/24high/Minerva-Emulator-Console.svg?style=for-the-badge
+[stars-url]: https://github.com/24high/Minerva-Emulator-Console/stargazers
+[issues-shield]: https://img.shields.io/github/issues/24high/Minerva-Emulator-Console.svg?style=for-the-badge
+[issues-url]: https://github.com/24high/Minerva-Emulator-Console/issues
+[license-shield]: https://img.shields.io/github/license/24high/Minerva-Emulator-Console.svg?style=for-the-badge
+[license-url]: https://github.com/24high/Minerva-Emulator-Console/blob/main/LICENSE
+[Circle-badge]: https://img.shields.io/badge/Circle-1B1B1B?style=for-the-badge
+[Circle-url]: https://github.com/rsta2/circle
+[libretro-badge]: https://img.shields.io/badge/libretro-000000?style=for-the-badge&logo=retroarch&logoColor=white
+[libretro-url]: https://www.libretro.com
+[Cpp-badge]: https://img.shields.io/badge/C++-00599C?style=for-the-badge&logo=cplusplus&logoColor=white
+[Cpp-url]: https://isocpp.org
+[RaspberryPi-badge]: https://img.shields.io/badge/Raspberry%20Pi-A22846?style=for-the-badge&logo=raspberrypi&logoColor=white
+[RaspberryPi-url]: https://www.raspberrypi.com
+[Node-badge]: https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white
+[Node-url]: https://nodejs.org

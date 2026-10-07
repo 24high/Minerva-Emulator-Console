@@ -186,10 +186,39 @@ bool CircleInput::ButtonState(unsigned id) const
 	const unsigned buttons = m_State.buttons;
 
 
-	// Known pads report Xbox positions (A bottom, B right, X left, Y top).
-	// RetroPad buttons are named by position on a SNES pad (B bottom, A right,
-	// Y left, X top), so the labels of the GPi Case, which reports as an Xbox
-	// 360 pad, end up on the RetroPad buttons with the same name.
+#ifdef RA_BAREMETAL_GPI_CASE
+	// The GPi Case controller reports as an Xbox 360 pad (045e:028e), but its
+	// button codes follow the printed SNES-style labels (the button labelled A
+	// reports as Xbox A), so each maps to the RetroPad button of that name.
+	// Verified on the device: A starts a game in the ROM browser.
+	if (m_GamePadKnown)
+	{
+		switch (id)
+		{
+		case RETRO_DEVICE_ID_JOYPAD_A:      return (buttons & GamePadButtonA);
+		case RETRO_DEVICE_ID_JOYPAD_B:      return (buttons & GamePadButtonB);
+		case RETRO_DEVICE_ID_JOYPAD_X:      return (buttons & GamePadButtonX);
+		case RETRO_DEVICE_ID_JOYPAD_Y:      return (buttons & GamePadButtonY);
+		case RETRO_DEVICE_ID_JOYPAD_SELECT: return (buttons & GamePadButtonSelect);
+		case RETRO_DEVICE_ID_JOYPAD_START:  return (buttons & GamePadButtonStart);
+		case RETRO_DEVICE_ID_JOYPAD_UP:     return (buttons & GamePadButtonUp) || HatDirection(id) || AxisDirection(id);
+		case RETRO_DEVICE_ID_JOYPAD_DOWN:   return (buttons & GamePadButtonDown) || HatDirection(id) || AxisDirection(id);
+		case RETRO_DEVICE_ID_JOYPAD_LEFT:   return (buttons & GamePadButtonLeft) || HatDirection(id) || AxisDirection(id);
+		case RETRO_DEVICE_ID_JOYPAD_RIGHT:  return (buttons & GamePadButtonRight) || HatDirection(id) || AxisDirection(id);
+		case RETRO_DEVICE_ID_JOYPAD_L:      return (buttons & GamePadButtonLB);
+		case RETRO_DEVICE_ID_JOYPAD_R:      return (buttons & GamePadButtonRB);
+		case RETRO_DEVICE_ID_JOYPAD_L2:     return (buttons & GamePadButtonLT);
+		case RETRO_DEVICE_ID_JOYPAD_R2:     return (buttons & GamePadButtonRT);
+		case RETRO_DEVICE_ID_JOYPAD_L3:     return (buttons & GamePadButtonL3);
+		case RETRO_DEVICE_ID_JOYPAD_R3:     return (buttons & GamePadButtonR3);
+		default:                            return false;
+		}
+	}
+#endif
+
+	// Other known pads report Xbox positions (A bottom, B right, X left,
+	// Y top); RetroPad buttons are named by position on a SNES pad (B bottom,
+	// A right, Y left, X top), as in RetroArch.
 	if (m_GamePadKnown)
 	{
 		switch (id)

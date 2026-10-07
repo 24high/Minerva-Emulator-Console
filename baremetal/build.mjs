@@ -223,7 +223,18 @@ function outputOf(exe, args) {
 function newer(target, inputs) {
   if (!fs.existsSync(target)) return true;
   const targetTime = fs.statSync(target).mtimeMs;
-  return inputs.some((input) => fs.statSync(input).mtimeMs > targetTime);
+  // A missing input (e.g. a header that was removed) also means rebuild.
+  return inputs.some((input) => !fs.existsSync(input) || fs.statSync(input).mtimeMs > targetTime);
+}
+
+// Source and headers of an object, from the dependency file the compiler
+// writes with -MMD; null if there is none yet.
+function dependenciesOf(depFile) {
+  if (!fs.existsSync(depFile)) return null;
+  const text = fs.readFileSync(depFile, "utf8").replace(/\\\r?\n/g, " ");
+  const colon = text.indexOf(": ");
+  if (colon < 0) return null;
+  return (text.slice(colon + 2).match(/(?:\\ |\S)+/g) || []).map((dep) => dep.replace(/\\ /g, " "));
 }
 
 function relFromRoot(file) {
@@ -260,6 +271,8 @@ function compile(source, extraFlags = [], options = {}) {
   const ext = path.extname(source).toLowerCase();
   const isCxx = ext === ".cpp" || ext === ".cc";
   const isAsm = ext === ".s";
+  // .S goes through the preprocessor and can include headers, .s does not.
+  const preprocessed = !isAsm || path.extname(source) === ".S";
   const exe = isCxx ? tools.cxx : tools.cc;
   const std = isCxx
     ? options.cxxStd ?? ["-std=c++17", "-fno-exceptions", "-fno-rtti", "-nostdinc++"]
@@ -270,6 +283,9 @@ function compile(source, extraFlags = [], options = {}) {
     ...std,
     ...extraFlags,
     ...(options.fileFlags ? options.fileFlags(source) : []),
+    // Records the headers; a changed header must rebuild every object that
+    // includes it (a class layout differing between objects corrupts memory).
+    ...(preprocessed ? ["-MMD", "-MF", `${object}.d`] : []),
     "-c",
     "-o",
     object,
@@ -278,7 +294,9 @@ function compile(source, extraFlags = [], options = {}) {
 
   const stamp = `${object}.cmd`;
   const commandKey = JSON.stringify([exe, args]);
-  if (!newer(object, [source]) && fs.existsSync(stamp) && fs.readFileSync(stamp, "utf8") === commandKey) {
+  const dependencies = preprocessed ? dependenciesOf(`${object}.d`) : [source];
+  if (dependencies && !newer(object, dependencies)
+      && fs.existsSync(stamp) && fs.readFileSync(stamp, "utf8") === commandKey) {
     return object;
   }
 

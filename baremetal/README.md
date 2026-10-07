@@ -103,6 +103,13 @@ Voraussetzungen (alle per `.gitignore` ausgenommen):
   in `./toolchain`, oder `TOOLCHAIN=/pfad/zur/toolchain`
 - Für das SD-Image unter Linux: `dosfstools` (mkfs.vfat) und `mtools` (mcopy)
 
+`build.mjs` baut nur neu, was sich geändert hat. Dazu zählen auch die Header:
+Der Compiler schreibt mit `-MMD` je Objekt eine `.d`-Datei, und ändert sich
+ein Header, werden alle Dateien neu übersetzt, die ihn einbinden. Ohne das
+behielt `kernel.cpp` nach einer Änderung an `libretro_runner.h` die alte
+Größe von `LibretroRunner`, und der Kernel überschrieb beim Spielstart eigenen
+Speicher.
+
 Der Build lädt die Pi-Firmware (`bootcode.bin`, `start.elf`, `fixup.dat`) in
 der Revision, die Circle in `circle/boot/Makefile` festlegt, und erzeugt:
 
@@ -322,12 +329,13 @@ rsta2/circle#345). Das GPi-Profil ersetzt deshalb
 `platform/circle/overrides/usbgamepadxbox360.cpp`: LED- und Rumble-Kommandos
 laufen mit 100 ms Timeout, ein Fehlschlag wird nur protokolliert.
 
-Der Controller meldet die Tasten nach Position wie ein Xbox-Pad: die untere
-Taste (GPi-B) als Xbox-A, die rechte (GPi-A) als Xbox-B, die linke (GPi-Y) als
-Xbox-X, die obere (GPi-X) als Xbox-Y. Die Standardbelegung bekannter Pads in
-`platform/circle/circle_input.cpp` legt das wie RetroArch auf die RetroPad-
-Tasten gleicher Position, damit stimmen die Beschriftungen des GPi mit den
-Tasten von SNES, NES, Game Boy usw. überein.
+Obwohl er sich als Xbox-Pad ausgibt, meldet der Controller die Tasten nach
+ihrer Beschriftung (GPi-A als Xbox-A usw.), nicht nach Position im Xbox-Layout.
+Der Block `RA_BAREMETAL_GPI_CASE` in `platform/circle/circle_input.cpp` legt
+deshalb jede Taste auf die RetroPad-Taste gleichen Namens; damit stimmen die
+Beschriftungen mit den Tasten von SNES, NES, Game Boy usw. überein (auf dem
+Gerät geprüft: A startet im ROM-Browser ein Spiel). Andere bekannte Pads
+werden wie in RetroArch nach Position belegt.
 
 Das GPi hat nur A, B, X und Y. Systeme mit mehr Tasten bekommen eine Belegung
 (`libretro/button_mapper.h`, je System in der Systemtabelle von
