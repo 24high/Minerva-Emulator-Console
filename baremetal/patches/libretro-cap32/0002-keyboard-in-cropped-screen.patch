@@ -1,0 +1,71 @@
+diff --git a/libretro/retro_ui.c b/libretro/retro_ui.c
+index 529af4a..1b55694 100644
+--- a/libretro/retro_ui.c
++++ b/libretro/retro_ui.c
+@@ -358,6 +358,39 @@ void retro_ui_set_led(bool value)
+    );
+ }
+ 
++// With the borders cropped, screen_blit_crop() shows only the middle
++// screen_render_width pixels of each line, which cuts off Esc on the left
++// and half of the keypad (f2, f3, f5, f6, f8, f9) on the right. Squeeze the
++// keyboard into the visible part instead (16bpp only); the keys keep their
++// positions, only the drawing and the cursor are scaled.
++static bool keyboard_squeezed(void)
++{
++   return retro_video.screen_crop && retro_video.depth == DEPTH_16BPP;
++}
++
++static int keyboard_squeeze_x(int x)
++{
++   return EMULATION_CROP + x * retro_video.screen_render_width / (EMULATION_SCREEN_WIDTH);
++}
++
++static void draw_keyboard_squeezed(void)
++{
++   static uint32_t line[IMG_KEYBOARD_WIDTH];
++   uint16_t *dst = (uint16_t *) line;
++   const int y = retro_video.screen_render_height - IMG_KEYBOARD_HEIGHT;
++   const int width = retro_video.screen_render_width;
++
++   for (int row = 0; row < IMG_KEYBOARD_HEIGHT; row++)
++   {
++      const uint16_t *src = (const uint16_t *) (keyboard_surface + row * IMG_KEYBOARD_WIDTH);
++
++      for (int x = 0; x < width; x++)
++         dst[x] = src[x * (EMULATION_SCREEN_WIDTH) / width];
++
++      draw_keyboard(video_buffer, line, EMULATION_CROP >> 1, y + row, width >> 1);
++   }
++}
++
+ void retro_ui_process()
+ {
+    ev_process_ui_shortcuts();
+@@ -371,7 +404,11 @@ void retro_ui_process()
+    if(!ui_status)
+       return;
+ 
+-   if (ui_status & INTERNAL_UI_KEYBOARD)
++   if ((ui_status & INTERNAL_UI_KEYBOARD) && keyboard_squeezed())
++   {
++      draw_keyboard_squeezed();
++   }
++   else if (ui_status & INTERNAL_UI_KEYBOARD)
+    {
+       draw_keyboard(
+          video_buffer,
+@@ -396,7 +433,12 @@ void retro_ui_process()
+ 
+    if(ui_status & (INTERNAL_UI_STATUSBAR ^ 0xFF))
+    {
+-      draw_char(video_buffer, mouse.x, mouse.y, FNT_MOUSE, cursor_color);
++      draw_char(
++         video_buffer,
++         (ui_status & INTERNAL_UI_KEYBOARD) && keyboard_squeezed()
++            ? keyboard_squeeze_x(mouse.x)
++            : mouse.x,
++         mouse.y, FNT_MOUSE, cursor_color);
+       ev_process_cursor();
+    }
+ }

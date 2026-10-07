@@ -3,6 +3,8 @@
 #include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/types.h>
 
 #include "dirent.h"
@@ -83,6 +85,40 @@ int ra_smoke_write_file(const char *path, const void *data, unsigned long size)
 	const long written = Syscall6(4, fd, (long)data, (long)size, 0, 0, 0);
 	Syscall6(6, fd, 0, 0, 0, 0, 0);	// close
 	return written == (long)size;
+}
+
+char *getcwd(char *buf, size_t size)
+{
+	static char s_Buffer[512];
+	if (!buf)
+	{
+		buf = s_Buffer;
+		size = sizeof s_Buffer;
+	}
+	return Syscall6(183, (long)buf, (long)size, 0, 0, 0, 0) < 0 ? 0 : buf;	// getcwd
+}
+
+// Directory listings are not needed for the test (see opendir below).
+int scandir(const char *dirp, struct dirent ***namelist,
+	    int (*filter)(const struct dirent *),
+	    int (*compar)(const struct dirent **, const struct dirent **))
+{
+	(void)dirp;
+	(void)namelist;
+	(void)filter;
+	(void)compar;
+	errno = ENOENT;
+	return -1;
+}
+
+// The test runs ROMs by absolute path; that is already the real path.
+char *realpath(const char *path, char *resolved)
+{
+	if (!resolved)
+	{
+		resolved = (char *)malloc(strlen(path) + 1);
+	}
+	return resolved ? strcpy(resolved, path) : 0;
 }
 
 // Whole-cache sync after loading a game; nothing to do under qemu-arm.

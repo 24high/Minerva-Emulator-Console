@@ -153,7 +153,11 @@ public:
 	void Init(CFATFileSystem *pFileSystem, CircleLog *pLog);
 #endif
 	bool ReadWholeFile(const char *path, uint8_t **ppData, size_t *pSize, size_t maxSize);
-	bool ListDirectory(const char *path, Entry *entries, unsigned maxEntries, unsigned *pCount);
+	// pFilter (may be 0) decides which entries are kept; the others do not
+	// count against maxEntries.
+	typedef bool (*TEntryFilter)(const char *name, bool isDirectory);
+	bool ListDirectory(const char *path, Entry *entries, unsigned maxEntries, unsigned *pCount,
+			   TEntryFilter pFilter = 0);
 	bool FindFirstWithExtension(const char *extension, char *path, size_t pathSize);
 	bool FileExists(const char *path);
 	// With FatFs the file is replaced only once the new contents are

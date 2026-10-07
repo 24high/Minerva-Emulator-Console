@@ -1,0 +1,24 @@
+diff --git a/libretro/libretro-core.c b/libretro/libretro-core.c
+index 319ea43..e1681ea 100644
+--- a/libretro/libretro-core.c
++++ b/libretro/libretro-core.c
+@@ -1736,6 +1736,19 @@ void retro_deinit(void)
+    retro_free(work_buffer);
+    #endif
+ 
++   // The frontend may call retro_init() again in the same process. Nothing
++   // of this run may look alive then: with COMPUTER_READY left set,
++   // update_variables() in the next retro_init() takes the options as
++   // changes to a running computer and draws the keyboard into the freed
++   // buffers of this run.
++   {
++      extern uint32_t *keyboard_surface, *keyboard_lang, *ui_surface;
++      keyboard_surface = keyboard_lang = ui_surface = NULL;
++   }
++   video_buffer = temp_buffer = work_buffer = draw_buffer = NULL;
++   dc = NULL;
++   emu_status = COMPUTER_OFF;
++
+    LOGI("Retro DeInit\n");
+ }
+ 

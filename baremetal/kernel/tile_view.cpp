@@ -57,6 +57,17 @@ static uint16_t SystemAccent(const TileEntry &entry)
 		{ "SMS",  TILE_RGB565(98, 152, 246) },
 		{ "GG",   TILE_RGB565(246, 212, 84) },
 		{ "SG",   TILE_RGB565(182, 182, 182) },
+		{ "A2600", TILE_RGB565(232, 96, 72) },
+		{ "LYNX", TILE_RGB565(232, 196, 64) },
+		{ "PCE",  TILE_RGB565(214, 170, 90) },
+		{ "WS",   TILE_RGB565(236, 72, 72) },
+		{ "WSC",  TILE_RGB565(120, 170, 240) },
+		{ "ZX",   TILE_RGB565(96, 210, 230) },
+		{ "ZX81", TILE_RGB565(240, 160, 60) },
+		{ "CPC",  TILE_RGB565(200, 200, 200) },
+		{ "C64",  TILE_RGB565(140, 140, 240) },
+		{ "PICO8", TILE_RGB565(255, 0, 77) },
+		{ "MAME", TILE_RGB565(96, 176, 240) },
 	};
 	if (entry.isDirectory)
 	{
@@ -229,6 +240,12 @@ static void DisplayName(char *pOut, size_t outSize, const TileEntry &entry)
 	if (!entry.isDirectory && pDot && pDot != pOut)
 	{
 		*pDot = 0;
+		// PICO-8 carts are "<name>.p8.png"
+		const size_t length = strlen(pOut);
+		if (length > 3 && strcmp(pOut + length - 3, ".p8") == 0)
+		{
+			pOut[length - 3] = 0;
+		}
 	}
 }
 

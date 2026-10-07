@@ -154,6 +154,58 @@ static int ErrnoFromResult(FRESULT result)
 }
 
 // "games/a.nes", "/games/a.nes" and "./games/a.nes" all map to "SD:/games/a.nes".
+// Current directory (chdir/getcwd), from the root of the volume, without
+// leading or trailing slash; "" is the root.
+static char s_Cwd[256];
+
+// pBase + "/" + pPath with "." and ".." resolved, without leading slash.
+static void ResolvePath(char *pOut, size_t nSize, const char *pBase, const char *pPath)
+{
+	size_t nLength = 0;
+	pOut[0] = 0;
+	const char *ppParts[2] = { pBase, pPath };
+	for (unsigned nPart = 0; nPart < 2; nPart++)
+	{
+		const char *p = ppParts[nPart];
+		while (p && *p)
+		{
+			while (*p == '/')
+			{
+				p++;
+			}
+			const char *pEnd = p;
+			while (*pEnd && *pEnd != '/')
+			{
+				pEnd++;
+			}
+			const size_t nName = (size_t)(pEnd - p);
+			if (nName == 2 && p[0] == '.' && p[1] == '.')
+			{
+				while (nLength > 0 && pOut[nLength - 1] != '/')
+				{
+					nLength--;
+				}
+				if (nLength > 0)
+				{
+					nLength--;
+				}
+				pOut[nLength] = 0;
+			}
+			else if (nName > 0 && !(nName == 1 && p[0] == '.') && nLength + nName + 2 < nSize)
+			{
+				if (nLength > 0)
+				{
+					pOut[nLength++] = '/';
+				}
+				memcpy(pOut + nLength, p, nName);
+				nLength += nName;
+				pOut[nLength] = 0;
+			}
+			p = pEnd;
+		}
+	}
+}
+
 static void VolumePath(char *pOut, size_t nSize, const char *pPath)
 {
 	if (strncmp(pPath, VOLUME, sizeof VOLUME - 1) == 0)
@@ -163,20 +215,10 @@ static void VolumePath(char *pOut, size_t nSize, const char *pPath)
 		return;
 	}
 
-	while (pPath[0] == '.' && pPath[1] == '/')
-	{
-		pPath += 2;
-	}
-	while (*pPath == '/')
-	{
-		pPath++;
-	}
-
 	size_t nLength = sizeof VOLUME - 1;
 	memcpy(pOut, VOLUME, nLength);
 	pOut[nLength++] = '/';
-	strncpy(pOut + nLength, pPath, nSize - nLength - 1);
-	pOut[nSize - 1] = 0;
+	ResolvePath(pOut + nLength, nSize - nLength, pPath[0] == '/' ? "" : s_Cwd, pPath);
 }
 
 static FIL *FileFromFd(int fd)
@@ -698,6 +740,135 @@ int closedir(DIR *pDir)
 	f_closedir(&pDir->dir);
 	free(pDir);
 	return 0;
+}
+
+int chdir(const char *pPath)
+{
+	if (!pPath)
+	{
+		return SetErrno(EFAULT);
+	}
+	char Path[sizeof s_Cwd];
+	ResolvePath(Path, sizeof Path, pPath[0] == '/' ? "" : s_Cwd, pPath);
+	if (Path[0])
+	{
+		char Full[320];
+		VolumePath(Full, sizeof Full, "/");
+		strncat(Full, Path, sizeof Full - strlen(Full) - 1);
+		FILINFO Info;
+		if (f_stat(Full, &Info) != FR_OK)
+		{
+			return SetErrno(ENOENT);
+		}
+		if (!(Info.fattrib & AM_DIR))
+		{
+			return SetErrno(ENOTDIR);
+		}
+	}
+	strcpy(s_Cwd, Path);
+	return 0;
+}
+
+// The absolute form of a path ("/" + path from the root); like FatFs, no
+// links to resolve. The path need not exist.
+char *realpath(const char *pPath, char *pResolved)
+{
+	if (!pPath)
+	{
+		errno = EINVAL;
+		return 0;
+	}
+	char Path[256];
+	ResolvePath(Path, sizeof Path, pPath[0] == '/' ? "" : s_Cwd, pPath);
+	if (!pResolved)
+	{
+		pResolved = (char *)malloc(strlen(Path) + 2);
+		if (!pResolved)
+		{
+			errno = ENOMEM;
+			return 0;
+		}
+	}
+	pResolved[0] = '/';
+	strcpy(pResolved + 1, Path);
+	return pResolved;
+}
+
+char *getcwd(char *pBuffer, size_t nSize)
+{
+	const size_t nLength = strlen(s_Cwd) + 2;	// "/" and NUL
+	if (!pBuffer)
+	{
+		nSize = nSize > nLength ? nSize : nLength;
+		pBuffer = (char *)malloc(nSize);
+		if (!pBuffer)
+		{
+			errno = ENOMEM;
+			return 0;
+		}
+	}
+	if (nSize < nLength)
+	{
+		errno = ERANGE;
+		return 0;
+	}
+	pBuffer[0] = '/';
+	strcpy(pBuffer + 1, s_Cwd);
+	return pBuffer;
+}
+
+int scandir(const char *pPath, struct dirent ***pppList,
+	    int (*pFilter)(const struct dirent *),
+	    int (*pCompare)(const struct dirent **, const struct dirent **))
+{
+	DIR *pDir = opendir(pPath);
+	if (!pDir)
+	{
+		return -1;
+	}
+
+	struct dirent **ppList = 0;
+	size_t nCount = 0;
+	size_t nCapacity = 0;
+	struct dirent *pEntry;
+	while ((pEntry = readdir(pDir)) != 0)
+	{
+		if (pFilter && !pFilter(pEntry))
+		{
+			continue;
+		}
+		if (nCount == nCapacity)
+		{
+			nCapacity = nCapacity ? nCapacity * 2 : 32;
+			struct dirent **ppNew = (struct dirent **)realloc(ppList, nCapacity * sizeof *ppList);
+			if (!ppNew)
+			{
+				break;
+			}
+			ppList = ppNew;
+		}
+		struct dirent *pCopy = (struct dirent *)malloc(sizeof *pCopy);
+		if (!pCopy)
+		{
+			break;
+		}
+		*pCopy = *pEntry;
+		ppList[nCount++] = pCopy;
+	}
+	closedir(pDir);
+
+	if (pCompare && nCount > 1)
+	{
+		qsort(ppList, nCount, sizeof *ppList,
+		      (int (*)(const void *, const void *))pCompare);
+	}
+	*pppList = ppList;
+	return (int)nCount;
+}
+
+int alphasort(const struct dirent **ppA, const struct dirent **ppB)
+{
+	return strcmp((*ppA)->d_name, (*ppB)->d_name);
 }
 
 }

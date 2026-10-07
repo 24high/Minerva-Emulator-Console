@@ -15,6 +15,7 @@ static unsigned g_Frames, g_DupFrames, g_Width, g_Height, g_Format = 99;
 static unsigned long g_AudioFrames;
 static float g_Aspect;
 static unsigned g_FirstPixel, g_CenterPixel;
+static unsigned g_DarkPercent;	// of the last frame: pixels darker than mid grey
 
 CircleLog::CircleLog(void) : m_pLogger(0) {}
 void CircleLog::Init(CLogger *) {}
@@ -27,6 +28,10 @@ CircleVideo::~CircleVideo(void) {}
 void CircleVideo::Init(CScreenDevice *) {}
 bool CircleVideo::SetPixelFormat(enum retro_pixel_format format) { g_Format = format; return true; }
 void CircleVideo::SetDisplayAspectRatio(float aspect) { g_Aspect = aspect; }
+#ifndef SMOKE_FATFS
+extern "C" int ra_smoke_write_file(const char *path, const void *data, unsigned long size);
+#endif
+
 bool CircleVideo::SubmitFrame(const void *frame, unsigned width, unsigned height, size_t pitch)
 {
 	if (!frame)
@@ -40,6 +45,57 @@ bool CircleVideo::SubmitFrame(const void *frame, unsigned width, unsigned height
 	g_Height = height;
 	g_FirstPixel = *(const unsigned short *)p;
 	g_CenterPixel = *(const unsigned short *)(p + (height / 2) * pitch + (width / 2) * 2);
+	unsigned dark = 0, total = 0;
+	for (unsigned y = 0; y < height; y += 2)
+	{
+		for (unsigned x = 0; x < width; x += 2)
+		{
+			unsigned r, g, b;
+			if (g_Format == RETRO_PIXEL_FORMAT_XRGB8888)
+			{
+				const unsigned v = *(const unsigned *)(p + y * pitch + x * 4);
+				r = (v >> 16) & 255; g = (v >> 8) & 255; b = v & 255;
+			}
+			else
+			{
+				const unsigned v = *(const unsigned short *)(p + y * pitch + x * 2);
+				r = (v >> 11) << 3; g = ((v >> 5) & 63) << 2; b = (v & 31) << 3;
+			}
+			dark += r + g + b < 3 * 64;
+			total++;
+		}
+	}
+	g_DarkPercent = total ? dark * 100 / total : 0;
+	// SMOKE_DUMP=<file.ppm>: keep the latest frame as a picture (Linux mode).
+#ifndef SMOKE_FATFS
+	if (const char *pDump = getenv("SMOKE_DUMP"))
+	{
+		static unsigned char s_Picture[32 + 1024 * 1024 * 3];
+		if (width * height <= 1024 * 1024)
+		{
+			unsigned length = sprintf((char *)s_Picture, "P6\n%u %u\n255\n", width, height);
+			for (unsigned y = 0; y < height; y++)
+			{
+				for (unsigned x = 0; x < width; x++)
+				{
+					unsigned char *rgb = s_Picture + length;
+					if (g_Format == RETRO_PIXEL_FORMAT_XRGB8888)
+					{
+						const unsigned v = *(const unsigned *)(p + y * pitch + x * 4);
+						rgb[0] = v >> 16; rgb[1] = v >> 8; rgb[2] = v;
+					}
+					else
+					{
+						const unsigned v = *(const unsigned short *)(p + y * pitch + x * 2);
+						rgb[0] = (v >> 11) << 3; rgb[1] = ((v >> 5) & 63) << 2; rgb[2] = (v & 31) << 3;
+					}
+					length += 3;
+				}
+			}
+			ra_smoke_write_file(pDump, s_Picture, length);
+		}
+	}
+#endif
 	return true;
 }
 
@@ -156,6 +212,7 @@ static void ResetCounters(void)
 	g_AudioFrames = 0;
 	g_Aspect = 0.0f;
 	g_FirstPixel = g_CenterPixel = 0;
+	g_DarkPercent = 0;
 }
 
 // Runs every ROM with the same runner, one after another (Init, frames,
@@ -182,6 +239,19 @@ int main(int argc, char **argv)
 		printf("FatFs mount of SD: failed\n");
 		return 1;
 	}
+	// The ROM browser's listing of the root folder: games and folders only.
+	{
+		static CircleFs::Entry entries[64];
+		unsigned count = 0;
+		fs.ListDirectory("", entries, 64, &count, [](const char *name, bool isDirectory)
+		{
+			return isDirectory || LibretroFindCoreForPath(name) != 0;
+		});
+		for (unsigned i = 0; i < count; i++)
+		{
+			printf("listed %s\n", entries[i].name);
+		}
+	}
 #endif
 	LibretroRunner runner(&log, 0, &video, &audio, &input, &fs);
 
@@ -206,10 +276,10 @@ int main(int argc, char **argv)
 			runner.RunFrame();
 		}
 		const unsigned long syncs = (&ra_smoke_cache_syncs ? ra_smoke_cache_syncs : 0UL) - syncsBefore;
-		printf("%-9s %-4s %-11s %ux%u aspect=%.3f format=%u first=#%06x center=#%06x frames=%u+%u audio=%lu@%u syncs=%lu\n",
+		printf("%-9s %-4s %-11s %ux%u aspect=%.3f format=%u first=#%06x center=#%06x dark=%u%% frames=%u+%u audio=%lu@%u syncs=%lu\n",
 		       name, LibretroSystemForPath(path), core->name, g_Width, g_Height, g_Aspect, g_Format,
-		       Rgb(g_FirstPixel), Rgb(g_CenterPixel), g_Frames, g_DupFrames, g_AudioFrames, runner.SampleRate(),
-		       syncs);
+		       Rgb(g_FirstPixel), Rgb(g_CenterPixel), g_DarkPercent, g_Frames, g_DupFrames, g_AudioFrames,
+		       runner.SampleRate(), syncs);
 		fflush(stdout);
 		runner.Shutdown();
 	}

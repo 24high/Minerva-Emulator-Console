@@ -11,7 +11,8 @@
 #include <libretro.h>
 #include <string.h>
 
-static const unsigned MAX_BROWSER_ENTRIES = 96;
+// Games and folders per folder (other files do not count, see LoadDirectory).
+static const unsigned MAX_BROWSER_ENTRIES = 512;
 
 static const char BROWSER_TITLE[] = "MINERVA CONSOLE";
 
@@ -149,7 +150,13 @@ static unsigned LoadDirectory(CircleFs *pFs, const char *directory, BrowserEntry
 	unsigned rawCount = 0;
 	unsigned count = 0;
 
-	if (!pFs || !pFs->ListDirectory(directory, rawEntries, MAX_BROWSER_ENTRIES, &rawCount))
+	// Only folders and games are listed: pictures, saves, logs and the boot
+	// files must not take the places of games.
+	const CircleFs::TEntryFilter isGameOrFolder = [](const char *name, bool isDirectory)
+	{
+		return isDirectory || LibretroFindCoreForPath(name) != 0;
+	};
+	if (!pFs || !pFs->ListDirectory(directory, rawEntries, MAX_BROWSER_ENTRIES, &rawCount, isGameOrFolder))
 	{
 		return 0;
 	}
@@ -266,6 +273,17 @@ struct SystemPicture
 	uint16_t *pPixels;
 };
 
+// Identifies the game a cached picture belongs to.
+static uint32_t PathHash(const char *pPath)
+{
+	uint32_t hash = 2166136261U;	// FNV-1a
+	for (; *pPath; pPath++)
+	{
+		hash = (hash ^ (uint8_t)*pPath) * 16777619U;
+	}
+	return hash;
+}
+
 class TilePictures
 {
 public:
@@ -275,6 +293,7 @@ public:
 	{
 		memset(m_State, 0, sizeof m_State);
 		memset(m_pCover, 0, sizeof m_pCover);
+		memset(m_Hash, 0, sizeof m_Hash);
 		m_Directory[0] = 0;
 	}
 
@@ -300,6 +319,10 @@ public:
 
 	const uint16_t *Get(unsigned index, const BrowserEntry &entry)
 	{
+		if (!IsLoaded(index, entry))
+		{
+			return 0;
+		}
 		switch (m_State[index])
 		{
 		case PictureCover:	return m_pCover[index];
@@ -308,13 +331,18 @@ public:
 		}
 	}
 
-	bool IsLoaded(unsigned index) const
+	// Pictures are kept by position in the list; a position that holds
+	// another game now (the folder changed) counts as not loaded.
+	bool IsLoaded(unsigned index, const BrowserEntry &entry) const
 	{
-		return m_State[index] != PictureUnknown;
+		return m_State[index] != PictureUnknown && m_Hash[index] == PathHash(entry.path);
 	}
 
 	void Load(unsigned index, const BrowserEntry &entry, CircleFs *pFs)
 	{
+		delete[] m_pCover[index];
+		m_pCover[index] = 0;
+		m_Hash[index] = PathHash(entry.path);
 		m_State[index] = PictureNone;
 		if (entry.entry.isDirectory)
 		{
@@ -413,6 +441,7 @@ private:
 	unsigned m_TileSize;
 	char m_Directory[256];
 	uint8_t m_State[MAX_BROWSER_ENTRIES];
+	uint32_t m_Hash[MAX_BROWSER_ENTRIES];
 	uint16_t *m_pCover[MAX_BROWSER_ENTRIES];
 	SystemPicture m_SystemPictures[MAX_SYSTEM_PICTURES];
 	unsigned m_nSystemPictures;
@@ -427,7 +456,7 @@ static bool LoadNextPicture(const BrowserEntry *entries, unsigned count, unsigne
 {
 	for (unsigned i = firstVisible; i < firstVisible + visibleCount && i < count; i++)
 	{
-		if (!s_Pictures.IsLoaded(i))
+		if (!s_Pictures.IsLoaded(i, entries[i]))
 		{
 			s_Pictures.Load(i, entries[i], pFs);
 			return true;
@@ -435,7 +464,7 @@ static bool LoadNextPicture(const BrowserEntry *entries, unsigned count, unsigne
 	}
 	for (unsigned i = 0; i < count; i++)
 	{
-		if (!s_Pictures.IsLoaded(i))
+		if (!s_Pictures.IsLoaded(i, entries[i]))
 		{
 			s_Pictures.Load(i, entries[i], pFs);
 			return false;
@@ -667,7 +696,7 @@ bool SelectRomAtBoot(CScreenDevice *pScreen,
 			{
 				CopyString(romPath, romPathSize, entry->path);
 				*ppCore = entry->pCore;
-				if (!s_Pictures.IsLoaded(selected))
+				if (!s_Pictures.IsLoaded(selected, *entry))
 				{
 					s_Pictures.Load(selected, *entry, pFs);
 				}

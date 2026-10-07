@@ -68,7 +68,7 @@ with `npm run build:baremetal:nes` or pass `--rom=<name>`.
 
 Das Board-Profil `gpi` baut denselben Runner für den Pi Zero (BCM2835,
 ARM1176, 32 Bit, Circle `RASPPI=1`) im Retroflag GPi Case. Standard ist das
-Core-Bündel `--core=all` mit fünf Cores in einem Kernel:
+Core-Bündel `--core=all` mit 15 Cores in einem Kernel:
 
 | System | Core | Dateiendungen |
 |---|---|---|
@@ -77,9 +77,49 @@ Core-Bündel `--core=all` mit fünf Cores in einem Kernel:
 | Game Boy Advance | gpSP (ARM-Dynarec) | `.gba` `.agb` |
 | SNES | Snes9x 2002 | `.sfc` `.smc` `.swc` `.fig` |
 | Mega Drive, Master System, Game Gear, SG-1000, 32X | PicoDrive | `.md` `.gen` `.smd` `.bin` `.sms` `.gg` `.sg` `.32x` |
+| Atari 2600 | Stella 2014 | `.a26` |
+| Atari Lynx | Handy (HLE-BIOS, keine BIOS-Datei nötig) | `.lnx` |
+| PC Engine / TurboGrafx-16 (HuCards) | Beetle PCE Fast | `.pce` |
+| WonderSwan / Color | Beetle WonderSwan | `.ws` `.wsc` |
+| ZX Spectrum | Fuse | `.tzx` `.tap` `.z80` `.sna` `.szx` |
+| ZX81 | EightyOne | `.p` `.t81` |
+| Amstrad CPC | Caprice32 | `.dsk` `.cdt` |
+| Commodore 64 | Frodo | `.d64` `.t64` `.x64` `.p00` |
+| PICO-8 | fake-08 | `.p8` `.p8.png` |
+| Arcade | MAME 2000 (0.37b5) | `.zip` |
+
+Die Endungen überschneiden sich nicht (`.tzx` ist Spectrum, `.zip` ist MAME).
+MAME legt den Münzeinwurf auf Select. Die Heimcomputer am GPi:
+
+| System | Belegung |
+|---|---|
+| ZX Spectrum | Steuerkreuz = Joystick (Kempston und Cursor-Tasten 5 bis 8 zugleich), A, X, Y = Feuer (auch Taste 0), B = hoch, Select = Bildschirmtastatur |
+| ZX81 | Steuerkreuz = Tasten 5 bis 8, A, B, X, Y = Taste 0, Select = Bildschirmtastatur |
+| Amstrad CPC | Steuerkreuz = Joystick, A = Feuer, B = zweiter Feuerknopf, Y = Leertaste, Select + Start (kurz) = Bildschirmtastatur, Select + B tippt `CAT`, Select + A tippt `RUN"DISC` |
+| C64 | Steuerkreuz und A = Joystick, Y = Bildschirmtastatur, Select wechselt zwischen Joystick und Maus |
+
+Viele Spectrum- und CPC-Spiele nehmen die Tastatur, bis man im Spielmenü den
+Joystick wählt; dafür ist die Bildschirmtastatur da. Beim CPC hat sie einen
+Zeiger (Steuerkreuz bewegt, A drückt die Taste, Select + Start schließt);
+*The Living Daylights* will zum Beispiel `f3` auf dem Ziffernblock. Mit dem
+abgeschnittenen Rand (`cap32_scr_crop`) zeichnet Caprice32 die Tastatur
+gestaucht, sonst fehlten Esc und der halbe Ziffernblock
+(`patches/libretro-cap32`). A ist Bit 4 des Joystick-Ports, der Feuerknopf
+gewöhnlicher Ein-Knopf-Joysticks (Pin 6).
+
+Fuse bekommt den Pad als Cursor-Joystick (Port 0) und als Kempston-Joystick
+(Port 1) zugleich (`padPorts` im Runner, `patches/fuse-libretro`).
+
+ZX81-Programme ohne Autostart startet der Core nach dem Laden selbst
+(`patches/81-libretro`); der echte ZX81 bleibt dann mit `0/0` auf leerem
+Bildschirm stehen und wartet auf `RUN`.
 
 N64 braucht den AArch64-Dynarec und mehrere Kerne und ist auf dem Zero nicht
-möglich. Mega-CD fehlt (braucht BIOS und CD-Images).
+möglich. Mega-CD fehlt (braucht BIOS und CD-Images), ebenso PC-Engine-CD.
+PSP und N-Gage übersteigen den Pi Zero bei weitem. DOS fehlt: DOSBox Pure
+braucht echte Threads, die DOSBox-SVN-Portierung SDL und mehrere externe
+Bibliotheken (MT-32, FluidSynth, Audio-Decoder), und am GPi fehlt die
+Tastatur.
 
 ```sh
 npm run build:gpi        # alle Cores
@@ -97,6 +137,16 @@ Voraussetzungen (alle per `.gitignore` ausgenommen):
   git clone --depth 1 https://github.com/libretro/snes9x2002.git baremetal/cores/snes9x2002
   git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/libretro/picodrive.git baremetal/cores/picodrive
   git clone --depth 1 https://github.com/libretro/gpsp.git baremetal/cores/gpsp
+  git clone --depth 1 https://github.com/libretro/stella2014-libretro.git baremetal/cores/stella2014-libretro
+  git clone --depth 1 https://github.com/libretro/libretro-handy.git baremetal/cores/libretro-handy
+  git clone --depth 1 https://github.com/libretro/beetle-pce-fast-libretro.git baremetal/cores/beetle-pce-fast-libretro
+  git clone --depth 1 https://github.com/libretro/beetle-wswan-libretro.git baremetal/cores/beetle-wswan-libretro
+  git clone --depth 1 https://github.com/libretro/fuse-libretro.git baremetal/cores/fuse-libretro
+  git clone --depth 1 https://github.com/libretro/81-libretro.git baremetal/cores/81-libretro
+  git clone --depth 1 https://github.com/libretro/libretro-cap32.git baremetal/cores/libretro-cap32
+  git clone --depth 1 https://github.com/libretro/frodo-libretro.git baremetal/cores/frodo-libretro
+  git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/jtothebell/fake-08.git baremetal/cores/fake-08
+  git clone --depth 1 https://github.com/libretro/mame2000-libretro.git baremetal/cores/mame2000-libretro
   ```
 
 - Arm GNU Toolchain 15.2.rel1 (`arm-none-eabi`, von developer.arm.com) entpackt
@@ -136,15 +186,36 @@ Core deshalb getrennt:
 2. Vorlinken aller Objekte zu einem Objekt (`ld -r`).
 3. Mit `objcopy` alle Symbole lokal machen außer der libretro-API, die zu
    `<core>_retro_*` umbenannt wird. Doppelte Hilfsfunktionen der Cores kollidieren
-   dadurch nicht mehr.
+   dadurch nicht mehr. Global bleiben außerdem die schwachen Symbole der
+   C++-Standardbibliothek (Template-Instanzen in `std`/`__gnu_cxx`): Sie sind in
+   allen Cores gleich, der Linker behält von jeder COMDAT-Gruppe nur eine Kopie
+   (eine lokalisierte könnte er verwerfen, während der Core sie noch braucht),
+   und libstdc++ von GCC 15 braucht selbst `basic_string::_M_construct<true>`.
+
+Die zehn später hinzugekommenen Cores (Stella bis MAME) stehen nicht als
+Dateiliste in `build.mjs`: `makefileBundleCore` liest Quellen, Defines und
+Include-Pfade per `make -n platform=unix` aus dem Makefile des Cores (Ergebnis
+im Build-Verzeichnis zwischengespeichert). Dateien, die das Makefile erst
+erzeugt (`config.h`, `version.c`, ROM-Header per `xxd`), lässt es mit den
+eigenen Regeln des Cores anlegen. Korrekturen an einem Core liegen als Patch in
+`baremetal/patches/<Core-Verzeichnis>/` und werden vor dem Kompilieren
+angewendet, falls noch nicht geschehen (Frodo: `mainThread` nach
+`retro_deinit` zurücksetzen, sonst startet kein zweites C64-Spiel). fake-08
+übersetzt seine `.c`-Dateien wie upstream als C++ und bekommt `int32_t = int`
+(auf `arm-none-eabi` ist es `long`, z8lua erwartet `int`).
+
+Mit allen Cores ist der Kernel rund 21 MB groß und belegt samt `.bss` gut 42 MB;
+das Bündel hat dafür `KERNEL_MAX_SIZE` 64 MB.
 
 `baremetal/libc/` verbindet newlib mit Circle: Speicher kommt aus Circles Heap
 (newlib verwaltet keinen eigenen). Circles `memalign` kann nur bis zur
 Cache-Zeilengröße (32 Byte) ausrichten; größere Ausrichtungen (`mmap`: 4 KB,
 libretro-Dateipuffer: 64 Byte) holt die Glue-Schicht selbst und ersetzt dafür
 `free`/`realloc`/`memalign`. Dateien und Verzeichnisse laufen über FatFs
-(`SD:`), `stdout`/`stderr` landen im Circle-Log. Dazu kommen `<dirent.h>` und
-`<sys/mman.h>`, die newlib für `arm-none-eabi` nicht hat.
+(`SD:`), `stdout`/`stderr` landen im Circle-Log. Dazu kommen `<dirent.h>`
+(mit `scandir`/`alphasort`) und `<sys/mman.h>`, die newlib für
+`arm-none-eabi` nicht hat, sowie `chdir`/`getcwd`/`realpath`: Relative Pfade
+beziehen sich auf das Arbeitsverzeichnis, `.` und `..` werden aufgelöst.
 
 Circles Heap verwendet freigegebene Blöcke oberhalb seiner größten Bucket-Größe
 (standardmäßig 512 KB) nie wieder. Weil Spiele beendet und andere gestartet
@@ -287,6 +358,15 @@ Beenden mit Start+Select und dem Start des nächsten Spiels. Jedes Ergebnis muss
 dem eigenen Einzellauf exakt gleichen, sonst hat ein Core beim Neustart Zustand
 behalten.
 
+Für die übrigen Systeme erzeugt `make-test-roms.mjs` kleine Programme oder
+Abbilder, deren Bild sich prüfen lässt: Atari 2600 gelber Hintergrund, Lynx
+(Homebrew-Datei, Video-Timer wie das Boot-ROM) rot, PC Engine rot, ZX Spectrum
+roter Rahmen, PICO-8 `cls(8)` rot; ZX81 (`.p` ohne Programm), Amstrad und C64
+(leere, formatierte Disketten) zeigen ihr BASIC. `invaders.zip` enthält ein
+ROM-Set aus Nullen mit den Dateinamen von Space Invaders: MAME warnt wegen der
+Prüfsummen und läuft dann. MAME sucht sein ZIP über eine Verzeichnisliste und
+läuft deshalb nur im FatFs-Modus des Tests.
+
 Die GBA-Test-ROM läuft wie ein Spiel in Thumb-Code, wartet per BIOS-Aufruf auf
 den VBlank-Interrupt und schreibt pro Bild einen Zähler als Hintergrundfarbe.
 Nach 300 Bildern muss sie `#584800` zeigen. `syncs=` zählt die Cache-Syncs
@@ -323,7 +403,10 @@ von wowroms.com (`baremetal/assets/systems/<system>.png`, 152×152) und werden
 beim Build in den Kernel eingebettet (`gen/system_images.c`). Eigene PNGs
 dekodiert `stb_image` (`baremetal/third_party/stb`), bis 2048×2048 Pixel.
 Die Bilder laden nach und nach, die sichtbaren zuerst, und bleiben für den
-Ordner im Speicher. Layout und Zeichnen (`kernel/tile_view.cpp`) hängen nicht
+Ordner im Speicher, jeweils an den Pfad des Spiels gebunden. Gelistet werden
+nur Spiele und Ordner, bis zu 512 je Ordner (`CircleFs::ListDirectory` mit
+Filter); Bilder, Spielstände und Logs belegen keine Plätze, sonst rutschten
+die Spiele nach jedem Speichern (neue FAT-Reihenfolge) auf andere Positionen. Layout und Zeichnen (`kernel/tile_view.cpp`) hängen nicht
 von Circle ab; `node baremetal/tests/tile-preview.mjs` rendert dieselben
 Ansichten auf dem PC nach `build-node/host-tests/previews/`.
 

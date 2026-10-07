@@ -1,0 +1,2 @@
+# The patches keep the line endings of the files they change (some use CRLF).
+*.patch -text

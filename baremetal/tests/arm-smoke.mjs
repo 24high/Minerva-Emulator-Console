@@ -36,7 +36,10 @@ const projectRoot = path.resolve(testsDir, "..");
 const buildDir = path.join(projectRoot, "build-node", "gpi-all");
 const outDir = path.join(projectRoot, "build-node", "arm-smoke");
 const romDir = path.join(projectRoot, "build-node", "test-roms");
-const CORES = ["fceumm", "gambatte", "snes9x2002", "picodrive", "gpsp"];
+// Every isolated core of the kernel build (cores/<id>.o).
+const CORES = fs.readdirSync(path.join(buildDir, "cores"))
+  .filter((file) => file.endsWith(".o") && !file.endsWith("-merged.o"))
+  .map((file) => path.basename(file, ".o"));
 
 function run(exe, args, options = {}) {
   const result = spawnSync(exe, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, ...options });
@@ -76,8 +79,12 @@ const useSequence = args.includes("--sequence");
 const useSaves = args.includes("--saves");
 const useInput = args.includes("--input");
 const romArgs = args.filter((arg) => !["--fatfs", "--sequence", "--saves", "--input"].includes(arg) && arg !== optionsArg);
-const ROM_EXTENSIONS = [".nes", ".gb", ".gbc", ".gba", ".sfc", ".md", ".sms", ".gg"];
+// MAME finds the driver by the name of the zip file, so its test ROM set is
+// invaders.zip, not test.zip.
+const ROM_EXTENSIONS = [".nes", ".gb", ".gbc", ".gba", ".sfc", ".md", ".sms", ".gg",
+  ".a26", ".lnx", ".pce", ".ws", ".wsc", ".sna", ".tap", ".z80", ".p", ".dsk", ".d64", ".p8", ".zip"];
 const SAVE_EXTENSIONS = [".srm", ".rtc"];
+const NOT_LISTED = ["cover.png", "test.gb.png", "other.srm", "minerva.log"];
 if (optionsFile && !useFatfs) throw new Error("--options needs --fatfs");
 
 fs.mkdirSync(outDir, { recursive: true });
@@ -130,12 +137,15 @@ run(cxx, [...cpuFlags, "-specs=linux.specs", "-static", "-o", binary, ...objects
   ...(useFatfs ? ["-Wl,--allow-multiple-definition"] : [])]);
 
 let image = null;
+const imageDir = path.join(outDir, "image");
 if (useFatfs) {
   image = path.join(outDir, "roms.img");
-  const imageDir = path.join(outDir, "image");
   fs.rmSync(imageDir, { recursive: true, force: true });
   fs.cpSync(romDir, imageDir, { recursive: true, filter: (file) => !SAVE_EXTENSIONS.includes(path.extname(file)) });
   if (optionsFile) fs.copyFileSync(optionsFile, path.join(imageDir, "minerva.cfg"));
+  // Pictures, saves and logs next to the games: the ROM browser lists none
+  // of them (they used to take the places of games).
+  for (const file of NOT_LISTED) fs.writeFileSync(path.join(imageDir, file), "x");
   buildImage(image, imageDir);
 }
 
@@ -147,7 +157,9 @@ const romPrefix = useSaves ? "save-" : useInput ? "input-" : "test.";
 const roms = romArgs.length
   ? romArgs.map((rom) => (useFatfs ? path.basename(rom) : path.resolve(rom)))
   : fs.readdirSync(romDir).sort()
-    .filter((rom) => ROM_EXTENSIONS.includes(path.extname(rom)) && rom.startsWith(romPrefix))
+    .filter((rom) => ROM_EXTENSIONS.includes(path.extname(rom))
+      // MAME finds its zip through a directory listing: FatFs mode only.
+      && (rom.startsWith(romPrefix) || (romPrefix === "test." && useFatfs && rom === "invaders.zip")))
     .map((rom) => (useFatfs ? rom : path.join(romDir, rom)));
 const frames = process.env.SMOKE_FRAMES || "300";
 const env = { ...process.env, ...(image ? { SMOKE_IMAGE: image } : {}) };
@@ -252,11 +264,19 @@ if (useInput) {
 for (const rom of roms) {
   const result = run(qemu, ["-cpu", "arm1176", binary, frames, rom], { allowFailure: true, timeout: 600000, env });
   const output = `${result.stdout || ""}${result.stderr || ""}`.trim();
-  console.log(output.split("\n").filter((line) => !/polyphase/.test(line)).join("\n") || `${path.basename(rom)}: no output (exit ${result.status}, signal ${result.signal})`);
+  console.log(output.split("\n").filter((line) => !/polyphase|\] listed |^listed /.test(line)).join("\n") || `${path.basename(rom)}: no output (exit ${result.status}, signal ${result.signal})`);
   const name = path.basename(rom);
   const line = output.split("\n").find((candidate) => resultLine(candidate, name));
   single.set(name, line && clean(line));
   if (result.status !== 0) failed++;
+  if (useFatfs && rom === roms[0]) {
+    const listed = output.split("\n").map(clean).filter((candidate) => candidate.startsWith("listed "))
+      .map((candidate) => candidate.slice("listed ".length));
+    const games = fs.readdirSync(imageDir).filter((file) => !NOT_LISTED.includes(file) && file !== "minerva.cfg");
+    const ok = games.every((file) => listed.includes(file)) && !listed.some((file) => NOT_LISTED.includes(file));
+    console.log(`${ok ? "ok  " : "FAIL"}  browser listing: ${listed.length} entries${ok ? "" : ` (${listed.join(" ")})`}`);
+    if (!ok) failed++;
+  }
 }
 
 if (useSequence) {

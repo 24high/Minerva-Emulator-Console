@@ -154,7 +154,7 @@ const config = {
   target: board.target,
   optimize: process.env.OPTIMIZE || "-O3",
   noUsb: selectedCore === "fceumm" && (cli.get("usb") === "0" || process.env.USB === "0"),
-  kernelMaxSize: cli.get("kernel-max-size") || process.env.KERNEL_MAX_SIZE || (selectedCore === "n64" || selectedCore === "multi" ? "0x08000000" : selectedCore === "all" ? "0x1000000" : selectedCore === "fceumm" ? "0x800000" : "0x200000"),
+  kernelMaxSize: cli.get("kernel-max-size") || process.env.KERNEL_MAX_SIZE || (selectedCore === "n64" || selectedCore === "multi" ? "0x08000000" : selectedCore === "all" ? "0x4000000" : selectedCore === "fceumm" ? "0x800000" : "0x200000"),
   hdmiPhysicalWidth: cli.get("hdmi-physical-width") || process.env.HDMI_PHYSICAL_WIDTH || "1920",
   hdmiPhysicalHeight: cli.get("hdmi-physical-height") || process.env.HDMI_PHYSICAL_HEIGHT || "1080",
   n64FrameSkip: selectedN64FrameSkip,
@@ -176,6 +176,7 @@ const tools = {
   ld: `${toolPrefix}ld${exeSuffix}`,
   ar: `${toolPrefix}ar${exeSuffix}`,
   objcopy: `${toolPrefix}objcopy${exeSuffix}`,
+  nm: `${toolPrefix}nm${exeSuffix}`,
   objdump: `${toolPrefix}objdump${exeSuffix}`,
   cxxfilt: `${toolPrefix}c++filt${exeSuffix}`,
 };
@@ -269,7 +270,8 @@ function compile(source, extraFlags = [], options = {}) {
   ensureDir(path.dirname(object));
 
   const ext = path.extname(source).toLowerCase();
-  const isCxx = ext === ".cpp" || ext === ".cc";
+  // cAsCxx: cores that compile their .c files with the C++ compiler (fake-08).
+  const isCxx = ext === ".cpp" || ext === ".cc" || (options.cAsCxx && ext === ".c");
   const isAsm = ext === ".s";
   // .S goes through the preprocessor and can include headers, .s does not.
   const preprocessed = !isAsm || path.extname(source) === ".S";
@@ -1115,12 +1117,201 @@ function gpspBundleCore() {
   };
 }
 
+// Splits a shell command line into words (quotes and backslashes removed).
+function shellWords(line) {
+  const words = [];
+  let word = null;
+  let quote = null;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (quote) {
+      if (ch === quote) quote = null;
+      else if (ch === "\\" && quote === '"' && i + 1 < line.length && "\\\"$`".includes(line[i + 1])) word += line[++i];
+      else word += ch;
+    } else if (ch === "'" || ch === '"') {
+      quote = ch;
+      word = word ?? "";
+    } else if (ch === "\\" && i + 1 < line.length) {
+      word = (word ?? "") + line[++i];
+    } else if (/\s/.test(ch)) {
+      if (word !== null) words.push(word);
+      word = null;
+    } else {
+      word = (word ?? "") + ch;
+    }
+  }
+  if (word !== null) words.push(word);
+  return words;
+}
+
+// Sources, defines and include directories of a core as its own Makefile
+// builds it ("make -n", cached until the Makefiles change). The cores below
+// use this instead of a list in this file, so they follow upstream.
+function makefileCoreInfo(root, makeArgs) {
+  const makefiles = fs.readdirSync(root).filter((file) => /^Makefile/.test(file)).map((file) => path.join(root, file));
+  const key = JSON.stringify([makeArgs, ...makefiles.map((file) => fs.statSync(file).mtimeMs)]);
+  const cacheFile = path.join(config.buildDir, "makefile-cores", `${path.basename(root)}.json`);
+  if (fs.existsSync(cacheFile)) {
+    const cached = JSON.parse(fs.readFileSync(cacheFile, "utf8"));
+    if (cached.key === key) return cached;
+  }
+
+  const result = spawnSync("make", ["-n", "-B", "-C", root, ...makeArgs], { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
+  const sources = [];
+  const defines = [];
+  const includes = [];
+  for (const line of (result.stdout || "").split("\n")) {
+    if (!/\s-c\s/.test(line)) continue;
+    const words = shellWords(line);
+    for (let i = 0; i < words.length; i++) {
+      const word = words[i];
+      if (/\.(c|cc|cpp|cxx|S|s)$/.test(word) && words[i - 1] !== "-o") {
+        const source = path.resolve(root, word);
+        if (!sources.includes(source)) sources.push(source);
+      } else if (word.startsWith("-D")) {
+        if (!defines.includes(word)) defines.push(word);
+      } else if (word.startsWith("-I")) {
+        const dir = path.resolve(root, word.length > 2 ? word.slice(2) : words[++i]);
+        if (!includes.includes(dir)) includes.push(dir);
+      }
+    }
+  }
+  if (sources.length === 0) {
+    fail(`make -n found no sources in ${relFromRoot(root)}:\n${(result.stderr || result.stdout || "").slice(0, 2000)}`);
+  }
+
+  const info = { key, sources, defines, includes };
+  ensureDir(path.dirname(cacheFile));
+  fs.writeFileSync(cacheFile, JSON.stringify(info, null, 1));
+  return info;
+}
+
+// Applies baremetal/patches/<core dir>/*.patch to a core clone, unless a
+// patch is applied already (fixes the core needs for bare metal or for
+// being started again after retro_deinit).
+function applyCorePatches(root, dir) {
+  const patchDir = path.join(projectRoot, "patches", dir);
+  if (!fs.existsSync(patchDir)) return;
+  for (const file of fs.readdirSync(patchDir).filter((name) => name.endsWith(".patch")).sort()) {
+    const patch = path.join(patchDir, file);
+    const applied = spawnSync("git", ["-C", root, "apply", "--reverse", "--check", patch], { encoding: "utf8" });
+    if (applied.status === 0) continue;
+    console.log(`PATCH   ${relFromRoot(root)}: ${file}`);
+    const result = spawnSync("git", ["-C", root, "apply", patch], { encoding: "utf8" });
+    if (result.status !== 0) fail(`Patch ${relFromRoot(patch)} does not apply:\n${result.stderr}`);
+  }
+}
+
+// A bundle core from its Makefile. dropSources/dropDefines: regular
+// expressions for what does not fit bare metal; defines are added after the
+// Makefile's own ones. generated: files the Makefile creates before
+// compiling (config headers, ...), made with the core's own rules.
+function makefileBundleCore({ id, dir, makeArgs = ["platform=unix"], cxx = true, cStd = ["-std=gnu99"],
+  cxxStd = ["-std=gnu++11"], dropSources = [], dropDefines = [], defines = [], includes = [],
+  extraSources = [], generated = [], fileFlags, optimize = "-O2", cAsCxx = false }) {
+  const root = path.join(projectRoot, "cores", dir);
+  ensureFile(path.join(root, "Makefile"));
+  applyCorePatches(root, dir);
+  const missing = generated.filter((file) => !fs.existsSync(path.join(root, file)));
+  if (missing.length) {
+    console.log(`GEN     ${relFromRoot(root)}: ${missing.join(" ")}`);
+    const result = spawnSync("make", ["-C", root, ...makeArgs, ...missing], { encoding: "utf8" });
+    if (result.status !== 0) fail(`make ${missing.join(" ")} failed in ${relFromRoot(root)}:\n${result.stderr || result.stdout}`);
+  }
+  const info = makefileCoreInfo(root, makeArgs);
+  const keep = (value, patterns) => !patterns.some((pattern) => pattern.test(value));
+  return {
+    id,
+    cxx,
+    sources: [
+      ...info.sources.filter((source) => keep(relFromRoot(source), dropSources)),
+      ...extraSources.map((source) => path.join(root, source)),
+    ],
+    includeFirst: [...includes.map((include) => path.join(root, include)), ...info.includes].flatMap((include) => ["-I", include]),
+    cStd,
+    cxxStd,
+    flags: [
+      optimize,
+      // arm-none-eabi makes an enum only as large as its values need; these
+      // cores come from systems where every enum is an int and read enum
+      // fields as ints (Fuse's keyboard table found no key at all). The
+      // libretro API is not affected: its enums are int-sized either way.
+      "-fno-short-enums",
+      ...info.defines.filter((define) => keep(define, [/^-DGIT_VERSION=/, ...dropDefines])),
+      "-DGIT_VERSION=\" baremetal\"",
+      ...defines,
+    ],
+    fileFlags,
+    cAsCxx,
+  };
+}
+
 function bundleCores() {
-  return [fceummBundleCore(), gambatteBundleCore(), snes9x2002BundleCore(), picodriveBundleCore(), gpspBundleCore()];
+  return [
+    fceummBundleCore(), gambatteBundleCore(), snes9x2002BundleCore(), picodriveBundleCore(), gpspBundleCore(),
+    ...extraBundleCores(),
+  ];
+}
+
+// Cores added later; their sources come from their own Makefiles.
+function extraBundleCores() {
+  return [
+    makefileBundleCore({ id: "stella2014", dir: "stella2014-libretro" }),
+    makefileBundleCore({ id: "handy", dir: "libretro-handy" }),
+    // HuCard games only: CD games need a system card BIOS and CD images.
+    makefileBundleCore({
+      id: "pcefast",
+      dir: "beetle-pce-fast-libretro",
+      makeArgs: ["platform=unix", "HAVE_CHD=0", "NEED_CD=0", "HAVE_CDROM=0"],
+    }),
+    makefileBundleCore({ id: "wswan", dir: "beetle-wswan-libretro" }),
+    makefileBundleCore({
+      id: "fuse",
+      dir: "fuse-libretro",
+      cxx: false,
+      generated: ["fuse/config.h", "libspectrum/config.h", "src/version.c"],
+    }),
+    makefileBundleCore({
+      id: "eightyone",
+      dir: "81-libretro",
+      generated: ["src/version.c", "bin/ROM/zx81.h", "bin/ROM/dkchr.h", "src/snaps/zx81_16k.h"],
+    }),
+    makefileBundleCore({ id: "cap32", dir: "libretro-cap32", cxx: false }),
+    makefileBundleCore({ id: "frodo", dir: "frodo-libretro" }),
+    // int32_t is "long" on arm-none-eabi but "int" on ARM Linux, which z8lua's
+    // fixed point type relies on (fix32(int) is ambiguous otherwise).
+    makefileBundleCore({
+      id: "fake08",
+      dir: "fake-08/platform/libretro",
+      cxxStd: ["-std=gnu++17"],
+      cAsCxx: true,
+      defines: ["-U__INT32_TYPE__", "-D__INT32_TYPE__=int", "-U__UINT32_TYPE__", "-D__UINT32_TYPE__=unsigned int"],
+    }),
+    makefileBundleCore({ id: "mame2000", dir: "mame2000-libretro", cxx: false }),
+  ];
 }
 
 // Compiles a core, pre-links it into one object and keeps only its libretro
 // API global, renamed to <id>_retro_*.
+// Weak symbols of the C++ standard library (template instantiations and
+// inline functions in std and __gnu_cxx: std::string, streams, ...) stay
+// global when a core is isolated. They are the same in every core (same
+// libstdc++ headers), and they must stay linkable: the linker keeps only one
+// copy of each COMDAT group, so a core's localized copy could be discarded
+// while the core still refers to it ("defined in discarded section"), and
+// libstdc++ itself needs some of them (GCC 15: basic_string::_M_construct
+// <true> for its locale shims). Everything else of a core becomes local.
+const STD_SYMBOL = /^_Z(?:T[VISHW]|GV|GVZ|Z)?(?:N[KVr]*)?(?:St|S[absiod]|9__gnu_cxx)/;
+
+function sharedStdSymbols(object) {
+  const result = spawnSync(tools.nm, ["--defined-only", object], { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
+  if (result.status !== 0) fail(`nm failed for ${relFromRoot(object)}: ${result.stderr}`);
+  return result.stdout.split("\n")
+    .map((line) => line.trim().split(/\s+/))
+    .filter((fields) => fields.length === 3 && /^[WVu]$/.test(fields[1]) && STD_SYMBOL.test(fields[2]))
+    .map((fields) => fields[2]);
+}
+
 function buildIsolatedCore(core) {
   const objects = core.sources.map((source) => compile(source, core.flags, {
     prependFlags: core.includeFirst,
@@ -1128,6 +1319,7 @@ function buildIsolatedCore(core) {
     cStd: [...(core.cStd || []), ...legacyCFlags],
     cxxStd: core.cxxStd,
     fileFlags: core.fileFlags,
+    cAsCxx: core.cAsCxx,
   }));
 
   const dir = path.join(config.buildDir, "cores");
@@ -1146,7 +1338,10 @@ function buildIsolatedCore(core) {
     const redefine = `${isolated}.redefine`;
     const keep = `${isolated}.keep`;
     fs.writeFileSync(redefine, libretroApiSymbols.map((symbol) => `${symbol} ${core.id}_${symbol}`).join("\n") + "\n");
-    fs.writeFileSync(keep, libretroApiSymbols.map((symbol) => `${core.id}_${symbol}`).join("\n") + "\n");
+    fs.writeFileSync(keep, [
+      ...libretroApiSymbols.map((symbol) => `${core.id}_${symbol}`),
+      ...sharedStdSymbols(merged),
+    ].join("\n") + "\n");
     run("ISOLATE", tools.objcopy, [
       `--redefine-syms=${redefine}`,
       `--keep-global-symbols=${keep}`,
@@ -1547,6 +1742,10 @@ async function main() {
       "-Map", map,
       `--section-start=.init=${board.loadAddress}`,
       ...noWarnRwx,
+      // The bundle cores use int-sized enums (-fno-short-enums), the rest
+      // the arm-none-eabi default; only the libretro API crosses between
+      // them, and its enums are int-sized in both.
+      ...(config.core === "all" ? ["--no-enum-size-warning"] : []),
       ...(allowMultipleDefinition ? ["--allow-multiple-definition"] : []),
       ...gcSections,
       "-T", path.join(config.circleHome, "circle.ld"),

@@ -1,0 +1,45 @@
+diff --git a/src/libretro.cpp b/src/libretro.cpp
+index d4df247..29f58c5 100644
+--- a/src/libretro.cpp
++++ b/src/libretro.cpp
+@@ -103,6 +103,32 @@ static const struct retro_variable core_vars[] =
+   { NULL, NULL },
+ };
+ 
++// A .p file saved without autostart stops after loading, with the program
++// in memory and only "0/0" on a blank screen, waiting for RUN - which cannot
++// be typed without a keyboard. After LOAD the ROM goes on at NXTLIN and stops
++// when the line number there starts with a byte >= $40 (the NEWLINE of the
++// display file): point NXTLIN at the first program line instead. Tapes in
++// TZX or T81 format are left alone.
++static void autorun_p_file( uint8_t* data, size_t size )
++{
++  const unsigned base = 0x4009, prog = 0x407d;
++
++  if ( size < prog - base + 1 || !memcmp( data, "ZXTape!", 7 ) || !memcmp( data, "EO81", 4 ) )
++    return;
++
++  const unsigned nxtlin = data[ 0x4029 - base ] | data[ 0x402a - base ] << 8;
++  const unsigned d_file = data[ 0x400c - base ] | data[ 0x400d - base ] << 8;
++
++  if ( nxtlin < base || nxtlin - base >= size || data[ nxtlin - base ] < 0x40 )
++    return; // runs by itself (or starts in a way that is not ours to judge)
++
++  if ( d_file > prog && data[ prog - base ] < 0x40 )
++  {
++    data[ 0x4029 - base ] = prog & 0xff;
++    data[ 0x402a - base ] = prog >> 8;
++  }
++}
++
+ #define UPDATE_RESET 1
+ #define UPDATE_AV    2
+  
+@@ -389,6 +415,7 @@ bool retro_load_game( const struct retro_game_info* info )
+   }
+   
+   memcpy( state.data, info->data, state.size );
++  autorun_p_file( (uint8_t*)state.data, state.size );
+   
+   state.cfg.machine = MACHINEZX81;
+   state.cfg.LambdaColour = COLOURDISABLED;

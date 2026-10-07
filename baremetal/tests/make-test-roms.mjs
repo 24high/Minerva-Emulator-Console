@@ -246,4 +246,298 @@ write("save-gba.gba", gba(true));
 write("input-gba.gba", gba(false, true));
 
 
+// --- Systems added later ------------------------------------------------------
+
+// Atari 2600: a frame with VSYNC/VBLANK/192 lines/overscan, background colour
+// $1E (yellow).
+{
+  const rom = Buffer.alloc(4096);
+  rom.set([
+    0x78, 0xd8, 0xa2, 0xff, 0x9a,             // sei; cld; ldx #$ff; txs
+    0xa9, 0x02, 0x85, 0x00,                   // frame: lda #2; sta VSYNC
+    0x85, 0x02, 0x85, 0x02, 0x85, 0x02,       // sta WSYNC x3
+    0xa9, 0x00, 0x85, 0x00,                   // lda #0; sta VSYNC
+    0xa9, 0x02, 0x85, 0x01,                   // lda #2; sta VBLANK
+    0xa2, 0x25, 0x85, 0x02, 0xca, 0xd0, 0xfb, // ldx #37; vb: sta WSYNC; dex; bne vb
+    0xa9, 0x00, 0x85, 0x01,                   // lda #0; sta VBLANK
+    0xa9, 0x1e, 0x85, 0x09,                   // lda #$1e; sta COLUBK
+    0xa2, 0xc0, 0x85, 0x02, 0xca, 0xd0, 0xfb, // ldx #192; vis: sta WSYNC; dex; bne vis
+    0xa9, 0x02, 0x85, 0x01,                   // lda #2; sta VBLANK
+    0xa2, 0x1e, 0x85, 0x02, 0xca, 0xd0, 0xfb, // ldx #30; os: sta WSYNC; dex; bne os
+    0x4c, 0x05, 0xf0,                         // jmp frame
+  ], 0);
+  rom.writeUInt16LE(0xf000, 0xffc);
+  rom.writeUInt16LE(0xf000, 0xffe);
+  write("test.a26", rom);
+}
+
+// Atari Lynx: homebrew file (BS93) loaded to $0200; sets up the video timers
+// and the display like the boot ROM does, with colour 0 red.
+{
+  const code = [
+    0x78, 0xd8,                               // sei; cld
+    0xa9, 158, 0x8d, 0x00, 0xfd,              // timer 0 (lines): backup 158
+    0xa9, 0x18, 0x8d, 0x01, 0xfd,             //   control: reload, count
+    0xa9, 104, 0x8d, 0x08, 0xfd,              // timer 2 (frames): backup 104
+    0xa9, 0x1f, 0x8d, 0x09, 0xfd,             //   control: linked to timer 0
+    0xa9, 0x00, 0x8d, 0x94, 0xfd,             // DISPADR = $c000
+    0xa9, 0xc0, 0x8d, 0x95, 0xfd,
+    0xa9, 0x29, 0x8d, 0x93, 0xfd,             // PBKUP
+    0xa9, 0x0d, 0x8d, 0x92, 0xfd,             // DISPCTL: display on
+    0xa9, 0x00, 0x8d, 0xa0, 0xfd,             // GREEN0 = 0
+    0xa9, 0x0f, 0x8d, 0xb0, 0xfd,             // BLUERED0 = red
+    0x80, 0xfe,                               // bra *
+  ];
+  const header = Buffer.from([0x80, 0x08, 0x02, 0x00, 0, 0, 0x42, 0x53, 0x39, 0x33]);
+  header.writeUInt16BE(code.length + header.length, 4);
+  write("test.lnx", Buffer.concat([header, Buffer.from(code)]));
+}
+
+// PC Engine: 8 KB HuCard, code at $e000; VCE colours 0 and $100 (shown
+// while the display is off) red.
+{
+  const rom = Buffer.alloc(8192);
+  rom.set([
+    0x78, 0xd4, 0xd8,                         // sei; csh; cld
+    0xa9, 0xff, 0x53, 0x01,                   // lda #$ff; tam #0 (I/O)
+    0xa9, 0xf8, 0x53, 0x02,                   // lda #$f8; tam #1 (RAM)
+    0xa2, 0xff, 0x9a,                         // ldx #$ff; txs
+    0x9c, 0x02, 0x04, 0x9c, 0x03, 0x04,       // stz $0402; stz $0403 (colour 0)
+    0xa9, 0x38, 0x8d, 0x04, 0x04,             // lda #$38; sta $0404 (red)
+    0x9c, 0x05, 0x04,                         // stz $0405
+    0x9c, 0x02, 0x04, 0xa9, 0x01, 0x8d, 0x03, 0x04, // stz $0402; lda #1; sta $0403 (colour $100)
+    0xa9, 0x38, 0x8d, 0x04, 0x04,             // lda #$38; sta $0404 (red)
+    0x9c, 0x05, 0x04,                         // stz $0405
+    0x80, 0xfe,                               // bra *
+  ], 0);
+  rom.writeUInt16LE(0xe000, 0x1ffe);
+  write("test.pce", rom);
+}
+
+// WonderSwan: 1 MB ROM; the reset vector (last 16 bytes) jumps to F000:0000,
+// which loops.
+{
+  const rom = Buffer.alloc(1024 * 1024, 0xff);
+  const base = rom.length - 0x10000;
+  rom.set([0xfa, 0xeb, 0xfe], base);         // cli; jmp $
+  rom.set([0xea, 0x00, 0x00, 0x00, 0xf0], rom.length - 16); // jmp far F000:0000
+  rom.set([0x00, 0x00, 0x01, 0x00, 0x06, 0x00, 0x04, 0x00], rom.length - 10);
+  let sum = 0;
+  for (let i = 0; i < rom.length - 2; i++) sum = (sum + rom[i]) & 0xffff;
+  rom.writeUInt16LE(sum, rom.length - 2);
+  write("test.ws", rom);
+}
+
+// ZX Spectrum: 48K snapshot (.sna); the program sets a red border and loops.
+{
+  const header = Buffer.alloc(27);
+  header.writeUInt16LE(0xff00, 23);          // SP: the PC is popped from there
+  header[25] = 1;                             // IM 1
+  header[26] = 2;                             // border red
+  const ram = Buffer.alloc(49152);
+  ram.set([0xf3, 0x3e, 0x02, 0xd3, 0xfe, 0x18, 0xfe], 0x8000 - 0x4000); // di; ld a,2; out ($fe),a; jr $
+  ram.writeUInt16LE(0x8000, 0xff00 - 0x4000);
+  write("test.sna", Buffer.concat([header, ram]));
+}
+
+// ZX Spectrum tape (.tap): BASIC program with autostart, loaded by the
+// core's auto load ("LOAD """); red border, then the Kempston port and the
+// key pressed in the top left corner (the pad is a cursor joystick, keys 5
+// to 8 and 0, and a Kempston joystick):
+//   10 BORDER 2 / 20 PRINT AT 0,0;IN 31;" ";INKEY$;"   " / 30 GOTO 20
+{
+  const smallInt = (value) => [0x0e, 0x00, 0x00, value & 0xff, value >> 8, 0x00];
+  const number = (value) => [...Buffer.from(String(value), "latin1"), ...smallInt(value)];
+  const text = (value) => [0x22, ...Buffer.from(value, "latin1"), 0x22];
+  const line = (lineNumber, tokens) => {
+    const body = [...tokens, 0x0d];
+    return [lineNumber >> 8, lineNumber & 0xff, body.length & 0xff, body.length >> 8, ...body];
+  };
+  const program = Buffer.from([
+    ...line(10, [0xe7, ...number(2)]),                                        // BORDER 2
+    ...line(20, [0xf5, 0xac, ...number(0), 0x2c, ...number(0), 0x3b,          // PRINT AT 0,0;
+      0xbf, ...number(31), 0x3b, ...text(" "), 0x3b, 0xa6, 0x3b, ...text("   ")]), // IN 31;" ";INKEY$;"   "
+    ...line(30, [0xec, ...number(20)]),                                       // GOTO 20
+  ]);
+  const block = (flag, data) => {
+    let checksum = flag;
+    for (const byte of data) checksum ^= byte;
+    const out = Buffer.alloc(data.length + 4);
+    out.writeUInt16LE(data.length + 2, 0);
+    out[2] = flag;
+    data.copy(out, 3);
+    out[out.length - 1] = checksum;
+    return out;
+  };
+  const header = Buffer.alloc(17);
+  header[0] = 0;                              // program
+  header.write("TEST      ", 1, "latin1");
+  header.writeUInt16LE(program.length, 11);
+  header.writeUInt16LE(10, 13);               // autostart line
+  header.writeUInt16LE(program.length, 15);   // start of the variables
+  write("test.tap", Buffer.concat([block(0x00, header), block(0xff, program)]));
+}
+
+// ZX81: a .p file (memory from the system variables at $4009 on) with a
+// program saved without autostart (NXTLIN at the display file), which the
+// core starts anyway (patches/81-libretro). It fills the screen with inverse
+// spaces: the screen turns black once it runs.
+//   10 FOR I=1 TO 704 / 20 PRINT CHR$ 128; / 30 NEXT I / 40 GOTO 40
+{
+  const digits = (text) => [...text].map((ch) => 0x1c + Number(ch));       // ZX81 '0'..'9'
+  const number = (text, float) => [...digits(text), 0x7e, ...float];      // digits + hidden float
+  const line = (lineNumber, tokens) => {
+    const body = [...tokens, 0x76];                                          // NEWLINE
+    return [lineNumber >> 8, lineNumber & 0xff, body.length & 0xff, body.length >> 8, ...body];
+  };
+  const I = 0x2e;
+  const program = [
+    ...line(10, [0xeb, I, 0x14, ...number("1", [0x81, 0, 0, 0, 0]), 0xdf, ...number("704", [0x8a, 0x30, 0, 0, 0])]), // FOR I=1 TO 704
+    ...line(20, [0xf5, 0xd6, ...number("128", [0x88, 0, 0, 0, 0]), 0x19]),  // PRINT CHR$ 128;
+    ...line(30, [0xf3, I]),                                                 // NEXT I
+    ...line(40, [0xec, ...number("40", [0x86, 0x20, 0, 0, 0])]),            // GOTO 40
+  ];
+  const base = 0x4009;
+  const programStart = 0x407d;
+  const dFile = programStart + program.length;
+  const vars = dFile + 25;                    // collapsed display: 25 x HALT
+  const eLine = vars + 1;                     // after the $80 end marker
+  const memory = Buffer.alloc(eLine - base + 3);
+  const put16 = (address, value) => memory.writeUInt16LE(value, address - base);
+  put16(0x400c, dFile);                       // D_FILE
+  put16(0x400e, dFile + 1);                   // DF_CC
+  put16(0x4010, vars);                        // VARS
+  put16(0x4014, eLine);                       // E_LINE
+  put16(0x4016, eLine + 1);                   // CH_ADD
+  put16(0x401a, eLine + 3);                   // STKBOT
+  put16(0x401c, eLine + 3);                   // STKEND
+  put16(0x401f, 0x405d);                      // MEM = MEMBOT
+  memory[0x4022 - base] = 2;                  // DF_SZ
+  put16(0x4025, 0xffff);                      // LAST_K
+  memory[0x4028 - base] = 55;                 // MARGIN (PAL)
+  put16(0x4029, dFile);                       // NXTLIN: no autostart, stop after loading
+  put16(0x4034, 0xffff);                      // FRAMES
+  memory[0x4038 - base] = 0xbc;               // PR_CC
+  put16(0x4039, 0x1821);                      // S_POSN
+  memory[0x403b - base] = 0x40;               // CDFLAG: SLOW mode
+  memory[0x405c - base] = 0x76;               // end of the printer buffer
+  memory.set(program, programStart - base);
+  memory.fill(0x76, dFile - base, vars - base);
+  memory[vars - base] = 0x80;                 // end of the variables
+  memory[eLine - base] = 0x76;                // empty edit line
+  memory[eLine + 1 - base] = 0x80;
+  write("test.p", memory);
+}
+
+// Amstrad CPC: data format disk (40 tracks, 9 sectors of 512 bytes) with an
+// ASCII BASIC program that the core starts (RUN"JOY) and that shows JOY(0)
+// in the top left corner: 1 up, 2 down, 4 left, 8 right, 16 fire (pad A),
+// 32 second fire button (pad B).
+{
+  const program = Buffer.from("10 LOCATE 1,1:PRINT JOY(0);\"  \"\r\n20 GOTO 10\r\n\x1a", "latin1");
+  const header = Buffer.alloc(256);
+  header.write("MV - CPCEMU Disk-File\r\nDisk-Info\r\n", 0, "latin1");
+  header.write("Minerva", 0x22, "latin1");
+  header[0x30] = 40;
+  header[0x31] = 1;
+  header.writeUInt16LE(256 + 9 * 512, 0x32);
+  const tracks = [];
+  for (let t = 0; t < 40; t++) {
+    const info = Buffer.alloc(256);
+    info.write("Track-Info\r\n", 0, "latin1");
+    info[0x10] = t;
+    info[0x14] = 2;
+    info[0x15] = 9;
+    info[0x16] = 0x4e;
+    info[0x17] = 0xe5;
+    for (let s = 0; s < 9; s++) info.set([t, 0, 0xc1 + s, 2, 0, 0, 0, 0], 0x18 + s * 8);
+    tracks.push(info, Buffer.alloc(9 * 512, 0xe5));
+  }
+  // Directory in block 0 (track 0, sectors &C1-&C2), the program in block 2
+  // (sectors &C5-&C6).
+  const entry = Buffer.alloc(32, 0);
+  entry.write("JOY     BAS", 1, "latin1");
+  entry[15] = Math.ceil(program.length / 128);
+  entry[16] = 2;
+  tracks[1].set(entry, 0);
+  tracks[1].set(program, 4 * 512);
+  write("test.dsk", Buffer.concat([header, ...tracks]));
+}
+
+// C64: blank formatted disk (BAM and empty directory on track 18); the C64
+// starts its BASIC.
+{
+  const sectorsOf = (track) => (track <= 17 ? 21 : track <= 24 ? 19 : track <= 30 ? 18 : 17);
+  const offset = (track, sector) => {
+    let blocks = 0;
+    for (let t = 1; t < track; t++) blocks += sectorsOf(t);
+    return (blocks + sector) * 256;
+  };
+  const disk = Buffer.alloc(174848);
+  const bam = offset(18, 0);
+  disk.set([18, 1, 0x41, 0], bam);
+  for (let t = 1; t <= 35; t++) {
+    const free = t === 18 ? sectorsOf(t) - 2 : sectorsOf(t);
+    const bits = (2 ** sectorsOf(t) - 1) & ~(t === 18 ? 3 : 0);
+    disk.set([free, bits & 0xff, (bits >> 8) & 0xff, (bits >> 16) & 0xff], bam + 4 * t);
+  }
+  disk.fill(0xa0, bam + 0x90, bam + 0xab);
+  disk.write("MINERVA", bam + 0x90, "latin1");
+  disk.write("01", bam + 0xa2, "latin1");
+  disk.write("2A", bam + 0xa5, "latin1");
+  disk.set([0, 0xff], offset(18, 1));
+  write("test.d64", disk);
+}
+
+// PICO-8: text cart that clears the screen to colour 8 (red).
+write("test.p8", "pico-8 cartridge // http://www.pico-8.com\nversion 41\n__lua__\nfunction _draw()\n cls(8)\nend\n");
+
+// MAME: Space Invaders ROM set with empty ROMs (right names and sizes, wrong
+// checksums): checks loading a zipped ROM set and running the driver.
+{
+  const crcTable = Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+  const crc32 = (data) => {
+    let c = 0xffffffff;
+    for (const byte of data) c = crcTable[(c ^ byte) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const files = ["invaders.h", "invaders.g", "invaders.f", "invaders.e"].map((name) => ({ name, data: Buffer.alloc(2048) }));
+  const parts = [];
+  const central = [];
+  let position = 0;
+  for (const file of files) {
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(10, 4);
+    local.writeUInt32LE(crc32(file.data), 14);
+    local.writeUInt32LE(file.data.length, 18);
+    local.writeUInt32LE(file.data.length, 22);
+    local.writeUInt16LE(file.name.length, 26);
+    const entry = Buffer.alloc(46);
+    entry.writeUInt32LE(0x02014b50, 0);
+    entry.writeUInt16LE(20, 4);
+    entry.writeUInt16LE(10, 6);
+    entry.writeUInt32LE(crc32(file.data), 16);
+    entry.writeUInt32LE(file.data.length, 20);
+    entry.writeUInt32LE(file.data.length, 24);
+    entry.writeUInt16LE(file.name.length, 28);
+    entry.writeUInt32LE(position, 42);
+    parts.push(local, Buffer.from(file.name, "latin1"), file.data);
+    central.push(entry, Buffer.from(file.name, "latin1"));
+    position += 30 + file.name.length + file.data.length;
+  }
+  const directory = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(files.length, 8);
+  end.writeUInt16LE(files.length, 10);
+  end.writeUInt32LE(directory.length, 12);
+  end.writeUInt32LE(position, 16);
+  write("invaders.zip", Buffer.concat([...parts, directory, end]));
+}
+
 console.log(`Test ROMs in ${outDir}`);

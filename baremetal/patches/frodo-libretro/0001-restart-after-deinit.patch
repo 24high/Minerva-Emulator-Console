@@ -1,0 +1,13 @@
+diff --git a/libretro/core/libretro.cpp b/libretro/core/libretro.cpp
+index 644cbf4..1b87158 100644
+--- a/libretro/core/libretro.cpp
++++ b/libretro/core/libretro.cpp
+@@ -217,6 +217,8 @@ void retro_deinit(void)
+       co_delete(emuThread);
+       emuThread = 0;
+    }
++   /* Emu_init() creates both threads again only if neither is set. */
++   mainThread = 0;
+ #endif
+ }
+ 

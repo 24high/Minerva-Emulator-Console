@@ -1,0 +1,45 @@
+diff --git a/src/libretro.c b/src/libretro.c
+index bc28113..5a73634 100644
+--- a/src/libretro.c
++++ b/src/libretro.c
+@@ -25,6 +25,7 @@
+ #include <peripherals/disk/disciple.h>
+ #include <pokefinder/pokemem.h>
+ #include <periph.h>
++#include <peripherals/joystick.h>
+ #include <sound.h>
+ #include <snapshot.h>
+ #include <timer/timer.h>
+@@ -2215,6 +2216,13 @@ bool retro_load_game(const struct retro_game_info *info)
+    {
+       fuse_init_called = 1;
+ 
++      // fuse_init() -> settings_defaults() has reset the joystick types the
++      // ports were given before loading (retro_init() wires port 0 as a
++      // cursor joystick and port 1 as a Kempston joystick), which left the
++      // joysticks without any effect until a frontend set the ports again.
++      settings_current.joystick_1_output = get_joystick(input_devices[0]);
++      settings_current.joystick_2_output = get_joystick(input_devices[1]);
++
+       if (info && info->size != 0)
+       {
+          tape_size = info->size;
+@@ -2902,6 +2910,18 @@ static void sync_periph_from_ports_and_options(void)
+ 
+    resolve_port_peripherals(&kempston_mouse, &fuller);
+ 
++   // A Kempston joystick is read through the Kempston interface, which is
++   // off by default. Only switched on here: a snapshot may have fitted it.
++   if (!settings_current.joy_kempston &&
++       (get_joystick(input_devices[0]) == JOYSTICK_TYPE_KEMPSTON ||
++        get_joystick(input_devices[1]) == JOYSTICK_TYPE_KEMPSTON))
++   {
++      settings_current.joy_kempston = 1;
++
++      if (fuse_init_called)
++         periph_needs_update = 1;
++   }
++
+    // Issue 2 only changes what ula_write() latches for the unused keyboard
+    // bits; no port (de)registration is involved, so it never needs a
+    // peripheral update.

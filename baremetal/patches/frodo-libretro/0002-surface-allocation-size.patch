@@ -1,0 +1,23 @@
+diff --git a/Src/Display.cpp b/Src/Display.cpp
+index 2174507..e62016d 100644
+--- a/Src/Display.cpp
++++ b/Src/Display.cpp
+@@ -336,7 +336,7 @@ int check_vkey2(int x,int y)
+ 
+ int init_graphics(void)
+ {
+-	screen         = (retro_Surface*)malloc( sizeof(retro_Surface*) );
++	screen         = (retro_Surface*)malloc( sizeof(retro_Surface) );
+ 	screen->pixels = (unsigned char*)malloc(DISPLAY_X *( DISPLAY_Y + 16) );
+ 	screen->h      = DISPLAY_Y+16;
+ 	screen->w      = DISPLAY_X ;
+@@ -397,8 +397,8 @@ C64Display::~C64Display()
+ 	if(screen)
+    {
+       free(screen->pixels);
+-      free(screen);
+       screen->pixels = NULL;
++      free(screen);
+       screen         = NULL;
+    }
+ }

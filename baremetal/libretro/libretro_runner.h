@@ -49,6 +49,11 @@ struct LibretroCore
 	float displayAspect;
 	// Option overrides, terminated by { 0, 0 }; may be 0.
 	const LibretroOption *options;
+	// Set: called with RETRO_DEVICE_JOYPAD for port 0 after loading, for
+	// cores that ignore the pad until the frontend names the device.
+	void (*set_controller_port_device)(unsigned port, unsigned device);
+	// Ports that read the one pad of the GPi Case (0 counts as 1).
+	unsigned padPorts;
 };
 
 const LibretroCore *LibretroFindCoreForPath(const char *path);

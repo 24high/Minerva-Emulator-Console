@@ -7,6 +7,16 @@
 /baremetal/cores/picodrive/
 /baremetal/cores/gpsp/
 /baremetal/cores/mupen64plus-libretro-nx/
+/baremetal/cores/stella2014-libretro/
+/baremetal/cores/libretro-handy/
+/baremetal/cores/beetle-pce-fast-libretro/
+/baremetal/cores/beetle-wswan-libretro/
+/baremetal/cores/fuse-libretro/
+/baremetal/cores/81-libretro/
+/baremetal/cores/libretro-cap32/
+/baremetal/cores/frodo-libretro/
+/baremetal/cores/fake-08/
+/baremetal/cores/mame2000-libretro/
 /baremetal/firmware-cache/
 
 # GPi Case build outputs

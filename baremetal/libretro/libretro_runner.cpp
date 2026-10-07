@@ -45,9 +45,13 @@ bool prefix##_retro_load_game(const struct retro_game_info *game); \
 void prefix##_retro_unload_game(void); \
 void *prefix##_retro_get_memory_data(unsigned id); \
 size_t prefix##_retro_get_memory_size(unsigned id); \
+void prefix##_retro_set_controller_port_device(unsigned port, unsigned device); \
 }
 
 #define LIBRETRO_CORE_ENTRY_EX(displayName, prefix, maxSize, aspect, options) \
+	LIBRETRO_CORE_ENTRY_PORT(displayName, prefix, maxSize, aspect, options, 0, 1)
+
+#define LIBRETRO_CORE_ENTRY_PORT(displayName, prefix, maxSize, aspect, options, portDevice, padPorts) \
 { \
 	displayName, maxSize, false, \
 	prefix##_retro_init, \
@@ -66,7 +70,7 @@ size_t prefix##_retro_get_memory_size(unsigned id); \
 	prefix##_retro_unload_game, \
 	prefix##_retro_get_memory_data, \
 	prefix##_retro_get_memory_size, \
-	aspect, options \
+	aspect, options, portDevice, padPorts \
 }
 
 #define LIBRETRO_CORE_ENTRY(displayName, prefix, maxSize, hasN64Options) \
@@ -103,6 +107,16 @@ DECLARE_LIBRETRO_CORE(gambatte)
 DECLARE_LIBRETRO_CORE(snes9x2002)
 DECLARE_LIBRETRO_CORE(picodrive)
 DECLARE_LIBRETRO_CORE(gpsp)
+DECLARE_LIBRETRO_CORE(stella2014)
+DECLARE_LIBRETRO_CORE(handy)
+DECLARE_LIBRETRO_CORE(pcefast)
+DECLARE_LIBRETRO_CORE(wswan)
+DECLARE_LIBRETRO_CORE(fuse)
+DECLARE_LIBRETRO_CORE(eightyone)
+DECLARE_LIBRETRO_CORE(cap32)
+DECLARE_LIBRETRO_CORE(frodo)
+DECLARE_LIBRETRO_CORE(fake08)
+DECLARE_LIBRETRO_CORE(mame2000)
 
 // Console games fill the 4:3 screen like on a TV; handheld systems keep the
 // picture shape their core reports (see LibretroSystem::handheld).
@@ -127,6 +141,36 @@ static const LibretroOption g_PicoDriveOptions[] = {
 
 static const LibretroCore g_PicoDriveCore = LIBRETRO_CORE_ENTRY_EX("PicoDrive", picodrive, 0x1000000, ASPECT_4_3, g_PicoDriveOptions);
 static const LibretroCore g_GpspCore = LIBRETRO_CORE_ENTRY_EX("gpSP", gpsp, 0x2000000, 0.0f, 0);
+
+// MAME 2000 at a lower sample rate: less work for the Pi Zero.
+static const LibretroOption g_Mame2000Options[] = {
+	{ "mame2000-sample_rate", "22050" },
+	{ 0, 0 }
+};
+
+static const LibretroCore g_Stella2014Core = LIBRETRO_CORE_ENTRY_EX("Stella 2014", stella2014, 0x100000, ASPECT_4_3, 0);
+static const LibretroCore g_HandyCore = LIBRETRO_CORE_ENTRY_EX("Handy", handy, 0x100000, 0.0f, 0);
+static const LibretroCore g_PceFastCore = LIBRETRO_CORE_ENTRY_EX("Beetle PCE Fast", pcefast, 0x400000, ASPECT_4_3, 0);
+static const LibretroCore g_WswanCore = LIBRETRO_CORE_ENTRY_EX("Beetle WonderSwan", wswan, 0x1000000, 0.0f, 0);
+// Fuse has a cursor joystick (keys 5 to 8 and 0) on port 0 and a Kempston
+// joystick on port 1; the pad drives both, so games for either work.
+static const LibretroCore g_FuseCore = LIBRETRO_CORE_ENTRY_PORT("Fuse", fuse, 0x1000000, ASPECT_4_3, 0, 0, 2);
+// EightyOne and Caprice32 read the pad only once the device on port 0 is
+// known (Caprice32 ignores a port without one, EightyOne asks for the device
+// it was given).
+static const LibretroCore g_EightyOneCore = LIBRETRO_CORE_ENTRY_PORT("EightyOne", eightyone, 0x100000, ASPECT_4_3, 0,
+	eightyone_retro_set_controller_port_device, 1);
+// The picture without the wide border Caprice32 draws around it.
+static const LibretroOption g_Cap32Options[] = {
+	{ "cap32_scr_crop", "enabled" },
+	{ 0, 0 }
+};
+
+static const LibretroCore g_Cap32Core = LIBRETRO_CORE_ENTRY_PORT("Caprice32", cap32, 0x1000000, ASPECT_4_3, g_Cap32Options,
+	cap32_retro_set_controller_port_device, 1);
+static const LibretroCore g_FrodoCore = LIBRETRO_CORE_ENTRY_EX("Frodo", frodo, 0x1000000, ASPECT_4_3, 0);
+static const LibretroCore g_Fake08Core = LIBRETRO_CORE_ENTRY_EX("fake-08", fake08, 0x100000, 0.0f, 0);
+static const LibretroCore g_Mame2000Core = LIBRETRO_CORE_ENTRY_EX("MAME 2000", mame2000, 0x4000000, 0.0f, g_Mame2000Options);
 
 // Button layouts for the GPi Case, which has A, B, X and Y only (see
 // button_mapper.h). Systems with 2 buttons use A and B as they are. The
@@ -174,6 +218,30 @@ static const LibretroSystem g_Systems[] = {
 	{ "sms", "SMS",  &g_PicoDriveCore,   false, 0 },
 	{ "gg",  "GG",   &g_PicoDriveCore,   true,  0 },
 	{ "sg",  "SG",   &g_PicoDriveCore,   false, 0 },
+	// Atari 2600: difficulty switches on Select+Y (left) and Select+X (right).
+	{ "a26", "A2600", &g_Stella2014Core, false, &g_SixButtons },
+	{ "lnx", "LYNX", &g_HandyCore,       true,  &g_GbaButtons },	// A, B, Option 1/2
+	{ "pce", "PCE",  &g_PceFastCore,     false, 0 },
+	{ "ws",  "WS",   &g_WswanCore,       true,  0 },
+	{ "wsc", "WSC",  &g_WswanCore,       true,  0 },
+	// Home computers: Select opens the core's on-screen keyboard.
+	{ "tzx", "ZX",   &g_FuseCore,        false, 0 },
+	{ "tap", "ZX",   &g_FuseCore,        false, 0 },
+	{ "z80", "ZX",   &g_FuseCore,        false, 0 },
+	{ "sna", "ZX",   &g_FuseCore,        false, 0 },
+	{ "szx", "ZX",   &g_FuseCore,        false, 0 },
+	{ "p",   "ZX81", &g_EightyOneCore,   false, 0 },
+	{ "t81", "ZX81", &g_EightyOneCore,   false, 0 },
+	{ "dsk", "CPC",  &g_Cap32Core,       false, 0 },
+	{ "cdt", "CPC",  &g_Cap32Core,       false, 0 },
+	{ "d64", "C64",  &g_FrodoCore,       false, 0 },
+	{ "t64", "C64",  &g_FrodoCore,       false, 0 },
+	{ "x64", "C64",  &g_FrodoCore,       false, 0 },
+	{ "p00", "C64",  &g_FrodoCore,       false, 0 },
+	{ "p8",  "PICO8", &g_Fake08Core,     true,  0 },
+	{ "p8.png", "PICO8", &g_Fake08Core,  true,  0 },
+	// Arcade ROM sets (zip): buttons 1-4 on B, A, Y, X, 5 and 6 with Select.
+	{ "zip", "MAME", &g_Mame2000Core,    true,  &g_SixButtons },
 	{ 0, 0, 0, false, 0 }
 };
 #else
@@ -277,7 +345,7 @@ static const LibretroSystem *FindSystem(const char *path)
 {
 	for (const LibretroSystem *pSystem = g_Systems; pSystem->extension; pSystem++)
 	{
-		char suffix[8] = ".";
+		char suffix[16] = ".";
 		strncat(suffix, pSystem->extension, sizeof suffix - 2);
 		if (StringEndsWithNoCase(path, suffix))
 		{
@@ -744,6 +812,10 @@ bool LibretroRunner::Init(const LibretroCore *pCore, const char *romPath)
 	}
 	Progress("runner: retro_load_game done");
 	m_GameLoaded = true;
+	if (m_pCore->set_controller_port_device)
+	{
+		m_pCore->set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
+	}
 	// Before the first frame, like RetroArch: some cores only report the
 	// size of their save memory until the game has run.
 	LoadSaves(romPath);
@@ -1440,6 +1512,11 @@ int16_t LibretroRunner::InputState(unsigned port, unsigned device, unsigned inde
 	if (!m_pInput)
 	{
 		return 0;
+	}
+
+	if (m_pCore && port < m_pCore->padPorts)
+	{
+		port = 0;
 	}
 
 	if (m_ButtonMapper.IsActive() && port == 0 && device == RETRO_DEVICE_JOYPAD)

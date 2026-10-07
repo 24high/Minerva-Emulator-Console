@@ -83,7 +83,8 @@ void CircleFs::Init(CFATFileSystem *pFileSystem, CircleLog *pLog)
 	m_pLog = pLog;
 }
 
-bool CircleFs::ListDirectory(const char *path, Entry *entries, unsigned maxEntries, unsigned *pCount)
+bool CircleFs::ListDirectory(const char *path, Entry *entries, unsigned maxEntries, unsigned *pCount,
+			     TEntryFilter pFilter)
 {
 	if (pCount)
 	{
@@ -103,7 +104,9 @@ bool CircleFs::ListDirectory(const char *path, Entry *entries, unsigned maxEntri
 	unsigned found = m_pFileSystem->DirectoryFindFirst(path ? path : "", &entry, &current);
 	while (found)
 	{
-		if (strcmp(entry.chTitle, ".") != 0 && strcmp(entry.chTitle, "..") != 0)
+		const bool isDirectory = (entry.nAttributes & FS_ATTRIB_DIRECTORY) != 0;
+		if (strcmp(entry.chTitle, ".") != 0 && strcmp(entry.chTitle, "..") != 0
+		    && (!pFilter || pFilter(entry.chTitle, isDirectory)))
 		{
 			if (*pCount < maxEntries)
 			{
@@ -350,7 +353,8 @@ bool CircleFs::Mount(CircleLog *pLog)
 	return m_Mounted;
 }
 
-bool CircleFs::ListDirectory(const char *path, Entry *entries, unsigned maxEntries, unsigned *pCount)
+bool CircleFs::ListDirectory(const char *path, Entry *entries, unsigned maxEntries, unsigned *pCount,
+			     TEntryFilter pFilter)
 {
 	if (pCount)
 	{
@@ -375,6 +379,11 @@ bool CircleFs::ListDirectory(const char *path, Entry *entries, unsigned maxEntri
 	while (*pCount < maxEntries && f_readdir(&dir, &info) == FR_OK && info.fname[0] != 0)
 	{
 		if (!IsListable(info))
+		{
+			continue;
+		}
+		const char *pName = EntryName(info, sizeof(entries[0].name));
+		if (pFilter && !pFilter(pName, (info.fattrib & AM_DIR) != 0))
 		{
 			continue;
 		}

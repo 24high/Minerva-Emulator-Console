@@ -23,6 +23,8 @@
   <p align="center">
     A bare-metal retro console for the Raspberry Pi Zero in the Retroflag GPi Case.
     <br />
+    It boots into the game list in about 5 seconds, instead of the usual 30 to 45 seconds.
+    <br />
     <a href="baremetal/README.md"><strong>Explore the docs »</strong></a>
     <br />
     <br />
@@ -68,10 +70,11 @@
 <!-- ABOUT THE PROJECT -->
 ## About The Project
 
-Minerva Console runs libretro emulator cores directly on the hardware of a Raspberry Pi, without Linux or any other operating system underneath. It is built on the Circle bare-metal C++ environment. You flip the power switch of the GPi Case and a few seconds later you are in the game list.
+Minerva Console runs libretro emulator cores directly on the hardware of a Raspberry Pi, without Linux or any other operating system underneath. It is built on the Circle bare-metal C++ environment. You flip the power switch of the GPi Case and about 5 seconds later you are in the game list. A Linux based setup on the same hardware usually needs 30 to 45 seconds to get there.
 
 Why bare metal:
-* No boot process to wait for and nothing to update or break in the background
+* Boots in about 5 seconds instead of 30 to 45
+* Nothing to update or break in the background
 * The whole system is one kernel file on a FAT32 SD card
 * Turning the case off is safe at any time, saves are written before the power is cut
 
@@ -93,8 +96,20 @@ The project started as a bare-metal port of RetroArch for the Raspberry Pi 5, wh
 | Super Nintendo | Snes9x 2002 | `.sfc` `.smc` `.swc` `.fig` |
 | Mega Drive / Genesis, 32X | PicoDrive | `.md` `.gen` `.smd` `.bin` `.32x` |
 | Master System, Game Gear, SG-1000 | PicoDrive | `.sms` `.gg` `.sg` |
+| Atari 2600 | Stella 2014 | `.a26` |
+| Atari Lynx | Handy | `.lnx` |
+| PC Engine / TurboGrafx-16 | Beetle PCE Fast | `.pce` |
+| WonderSwan / WonderSwan Color | Beetle WonderSwan | `.ws` `.wsc` |
+| ZX Spectrum | Fuse | `.tzx` `.tap` `.z80` `.sna` `.szx` |
+| Sinclair ZX81 | EightyOne | `.p` `.t81` |
+| Amstrad CPC | Caprice32 | `.dsk` `.cdt` |
+| Commodore 64 | Frodo | `.d64` `.t64` `.x64` `.p00` |
+| PICO-8 | fake-08 | `.p8` `.p8.png` |
+| Arcade | MAME 2000 (0.37b5) | `.zip` |
 
-All five cores are linked into a single kernel, the right one is picked by the file extension.
+All 15 cores are linked into a single kernel, the right one is picked by the file extension. None of them needs a BIOS file. The PC Engine core plays HuCards only, CD games are not supported.
+
+MS-DOS, the PSP and the N-Gage are not included. The PSP and the N-Gage are far beyond what a Pi Zero can emulate, and the DOS emulators either need threads or a set of libraries that do not exist without an operating system.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -147,7 +162,18 @@ To build the kernel yourself, follow the steps below.
    git clone --depth 1 https://github.com/libretro/snes9x2002.git baremetal/cores/snes9x2002
    git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/libretro/picodrive.git baremetal/cores/picodrive
    git clone --depth 1 https://github.com/libretro/gpsp.git baremetal/cores/gpsp
+   git clone --depth 1 https://github.com/libretro/stella2014-libretro.git baremetal/cores/stella2014-libretro
+   git clone --depth 1 https://github.com/libretro/libretro-handy.git baremetal/cores/libretro-handy
+   git clone --depth 1 https://github.com/libretro/beetle-pce-fast-libretro.git baremetal/cores/beetle-pce-fast-libretro
+   git clone --depth 1 https://github.com/libretro/beetle-wswan-libretro.git baremetal/cores/beetle-wswan-libretro
+   git clone --depth 1 https://github.com/libretro/fuse-libretro.git baremetal/cores/fuse-libretro
+   git clone --depth 1 https://github.com/libretro/81-libretro.git baremetal/cores/81-libretro
+   git clone --depth 1 https://github.com/libretro/libretro-cap32.git baremetal/cores/libretro-cap32
+   git clone --depth 1 https://github.com/libretro/frodo-libretro.git baremetal/cores/frodo-libretro
+   git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/jtothebell/fake-08.git baremetal/cores/fake-08
+   git clone --depth 1 https://github.com/libretro/mame2000-libretro.git baremetal/cores/mame2000-libretro
    ```
+   The build applies the small fixes in `baremetal/patches` to the cores by itself.
 4. Build the kernel and the SD card image
    ```sh
    npm run build:gpi
@@ -172,7 +198,7 @@ Copy your games anywhere onto the SD card, folders and long file names are fine.
 | A | Start game or open folder |
 | B | Back to the parent folder |
 
-Every game is shown as a square tile with its name below. Games without their own picture show the logo of their system.
+Every game is shown as a square tile with its name below. Games without their own picture show the logo of their system. Only games and folders are listed (up to 512 per folder); pictures, saves and other files stay hidden.
 
 **Game pictures**
 
@@ -208,8 +234,24 @@ The GPi Case only has A, B, X and Y. Systems with shoulder buttons get them on Y
 | Game Boy Advance | A, B, Y = L, X = R |
 | Super Nintendo | A, B, X, Y as labelled, Select + Y = L, Select + X = R |
 | Mega Drive (6-button pad) | Y = A, B = B, A = C, X = Y, Select + Y = X, Select + X = Z |
+| Atari 2600 | B = fire, Select = game select, Start = reset, Select + Y / X = left / right difficulty |
+| Atari Lynx | A, B, Y = Option 1, X = Option 2, Start = pause |
+| PICO-8 | B = O, A = X, Start = pause |
+| Arcade (MAME) | B, A, Y, X = buttons 1 to 4, Select + Y / X = buttons 5 and 6, Select = coin, Start = start |
+| ZX Spectrum | D-pad = joystick (Kempston and cursor keys 5 to 8 at the same time), A, X, Y = fire (also key 0), B = up, Select = on-screen keyboard |
+| ZX81 | D-pad = keys 5 to 8, A, B, X, Y = key 0, Select = on-screen keyboard |
+| Amstrad CPC | D-pad = joystick, A = fire, B = second fire button, Y = space, Select + Start (short) = on-screen keyboard, Select + B types `CAT`, Select + A types `RUN"DISC` |
+| C64 | D-pad and A = joystick, Y = on-screen keyboard, Select switches between joystick and mouse |
 
-On the Super Nintendo and the Mega Drive a short press of Select still reaches the game.
+On the Super Nintendo, the Mega Drive, the Atari 2600 and in MAME a short press of Select still reaches the game.
+
+**Arcade games** need ROM sets that match MAME 0.37b5 (the version MAME 2000 is based on). Keep each set zipped under its MAME name, for example `pacman.zip`.
+
+Many Spectrum and CPC games use the keyboard until you pick the joystick in their menu. Use the on-screen keyboard for that. On the CPC it has a pointer: move it with the D-pad, press a key with A, close the keyboard with Select + Start. For example, *The Living Daylights* needs `f3` on the keypad for the joystick.
+
+**ZX81 programs** that were saved without autostart start by themselves after loading. On the real machine they stop with `0/0` on an empty screen and wait for `RUN`.
+
+**PICO-8 carts** can be text carts (`.p8`) or picture carts (`.p8.png`). A picture cart shows its own label on the tile.
 
 **Saves**
 
@@ -236,6 +278,7 @@ For more details, like the build options, the tests and how the cores are linked
 - [x] NES, Game Boy, GBA, SNES, Mega Drive, Master System, Game Gear
 - [x] In-game saves and clock for RTC cartridges
 - [x] Return to the game list with Start + Select
+- [x] Atari 2600, Lynx, PC Engine, WonderSwan, ZX Spectrum, ZX81, Amstrad CPC, C64, PICO-8 and arcade games
 - [ ] Save states
 - [ ] Faster ARM cores for the Mega Drive (Cyclone, DrZ80)
 - [ ] In-game menu (volume, reset)
@@ -269,7 +312,7 @@ Before a pull request, please run the tests in `baremetal/tests` (they run the c
 
 Distributed under the GNU General Public License v3.0. See `LICENSE` for more information.
 
-The emulator cores keep their own licenses. Snes9x 2002 and PicoDrive may not be used commercially, so the same applies to the kernel images that include them.
+The emulator cores keep their own licenses. Snes9x 2002, PicoDrive, Caprice32 and MAME 2000 may not be used commercially, so the same applies to the kernel images that include them.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -292,6 +335,7 @@ Project Link: [https://github.com/24high/Minerva-Emulator-Console](https://githu
 * [Circle](https://github.com/rsta2/circle) by Rene Stange
 * [RetroArch and libretro](https://www.libretro.com)
 * [FCEUmm](https://github.com/libretro/libretro-fceumm), [Gambatte](https://github.com/libretro/gambatte-libretro), [Snes9x 2002](https://github.com/libretro/snes9x2002), [PicoDrive](https://github.com/libretro/picodrive) and [gpSP](https://github.com/libretro/gpsp)
+* [Stella 2014](https://github.com/libretro/stella2014-libretro), [Handy](https://github.com/libretro/libretro-handy), [Beetle PCE Fast](https://github.com/libretro/beetle-pce-fast-libretro), [Beetle WonderSwan](https://github.com/libretro/beetle-wswan-libretro), [Fuse](https://github.com/libretro/fuse-libretro), [EightyOne](https://github.com/libretro/81-libretro), [Caprice32](https://github.com/libretro/libretro-cap32), [Frodo](https://github.com/libretro/frodo-libretro), [fake-08](https://github.com/jtothebell/fake-08) and [MAME 2000](https://github.com/libretro/mame2000-libretro)
 * [Retroflag](https://retroflag.com) for the GPi Case
 * [stb_image](https://github.com/nothings/stb) by Sean Barrett, used to load the tile pictures
 * The system logos on the tiles are taken from [wowroms.com](https://wowroms.com/en/all-roms)
