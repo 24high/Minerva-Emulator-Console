@@ -7,6 +7,8 @@
     "build:baremetal:nes": "node baremetal/build.mjs --core=fceumm --rom=GAME.NES",
     "build:baremetal:n64": "node baremetal/build.mjs --core=n64 --rom=GAME.Z64",
     "build:baremetal:multi": "node baremetal/build.mjs --core=multi",
+    "build:gpi": "node baremetal/build.mjs --board=gpi --core=all",
+    "build:gpi:nes": "node baremetal/build.mjs --board=gpi --core=fceumm",
     "clean:baremetal": "node -e \"fs.rmSync('baremetal/build-node',{recursive:true,force:true})\""
   }
 }

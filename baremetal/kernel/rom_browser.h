@@ -9,12 +9,18 @@ class CircleFs;
 class CircleInput;
 struct LibretroCore;
 
+// Polled while the browser waits for input; returning true aborts the
+// selection (e.g. the GPi Case power switch was turned off).
+typedef bool (*TRomBrowserAbortPoll)(void *pContext);
+
 bool SelectRomAtBoot(CScreenDevice *pScreen,
                      CTimer *pTimer,
                      CircleFs *pFs,
                      CircleInput *pInput,
                      char *romPath,
                      size_t romPathSize,
-                     const LibretroCore **ppCore);
+                     const LibretroCore **ppCore,
+                     TRomBrowserAbortPoll pAbortPoll = 0,
+                     void *pAbortContext = 0);
 
 #endif

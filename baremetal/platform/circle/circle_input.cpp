@@ -185,6 +185,11 @@ bool CircleInput::ButtonState(unsigned id) const
 {
 	const unsigned buttons = m_State.buttons;
 
+
+	// Known pads report Xbox positions (A bottom, B right, X left, Y top).
+	// RetroPad buttons are named by position on a SNES pad (B bottom, A right,
+	// Y left, X top), so the labels of the GPi Case, which reports as an Xbox
+	// 360 pad, end up on the RetroPad buttons with the same name.
 	if (m_GamePadKnown)
 	{
 		switch (id)

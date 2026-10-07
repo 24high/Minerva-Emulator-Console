@@ -1,0 +1,19 @@
+# Downloaded build dependencies (see baremetal/README.md)
+/circle/
+/toolchain/
+/baremetal/cores/libretro-fceumm/
+/baremetal/cores/gambatte-libretro/
+/baremetal/cores/snes9x2002/
+/baremetal/cores/picodrive/
+/baremetal/cores/gpsp/
+/baremetal/cores/mupen64plus-libretro-nx/
+/baremetal/firmware-cache/
+
+# GPi Case build outputs
+/baremetal/build-node/gpi-*/
+/dist/
+
+# Test outputs (baremetal/tests/)
+/baremetal/build-node/arm-smoke/
+/baremetal/build-node/test-roms/
+/baremetal/build-node/host-tests/

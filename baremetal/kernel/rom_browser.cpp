@@ -11,11 +11,29 @@
 
 static const unsigned MAX_BROWSER_ENTRIES = 96;
 
+// Screens below this height (e.g. the 320x240 panel of the GPi Case) get
+// the compact browser layout.
+static const unsigned COMPACT_LAYOUT_MAX_HEIGHT = 400;
+
+static const char BROWSER_TITLE[] = "MINERVA CONSOLE";
+#if defined(RA_BAREMETAL_CORE_BUNDLE)
+static const char BROWSER_SUBTITLE[] = "ROM SELECTION  -  NES GB GBA SNES MD SMS GG";
+#elif defined(RA_BAREMETAL_MULTI)
+static const char BROWSER_SUBTITLE[] = "ROM SELECTION  -  NES AND N64";
+#elif defined(RA_BAREMETAL_N64)
+static const char BROWSER_SUBTITLE[] = "ROM SELECTION  -  N64";
+#elif defined(RA_BAREMETAL_FCEUMM)
+static const char BROWSER_SUBTITLE[] = "ROM SELECTION  -  NES";
+#else
+static const char BROWSER_SUBTITLE[] = "ROM SELECTION";
+#endif
+
 struct BrowserEntry
 {
 	CircleFs::Entry entry;
 	char path[256];
 	const LibretroCore *pCore;
+	const char *system;
 };
 
 static void CopyString(char *dst, size_t dstSize, const char *src)
@@ -160,6 +178,7 @@ static unsigned LoadDirectory(CircleFs *pFs, const char *directory, BrowserEntry
 		entries[count].entry = rawEntries[i];
 		CopyString(entries[count].path, sizeof(entries[count].path), fullPath);
 		entries[count].pCore = pCore;
+		entries[count].system = pCore ? LibretroSystemForPath(fullPath) : "";
 		count++;
 	}
 
@@ -308,12 +327,14 @@ static const char *EntryKind(const BrowserEntry *entry)
 	{
 		return "DIR";
 	}
-	if (entry->pCore && entry->pCore->n64Options)
-	{
-		return "N64";
-	}
-	return "NES";
+	return entry->system;
 }
+
+struct SystemColor
+{
+	const char *system;
+	T2DColor color;
+};
 
 static T2DColor EntryAccentColor(const BrowserEntry *entry)
 {
@@ -325,11 +346,28 @@ static T2DColor EntryAccentColor(const BrowserEntry *entry)
 	{
 		return COLOR2D(54, 190, 198);
 	}
-	if (entry->pCore && entry->pCore->n64Options)
+
+	static const SystemColor Colors[] = {
+		{ "NES",  COLOR2D(118, 218, 135) },
+		{ "N64",  COLOR2D(196, 114, 238) },
+		{ "GB",   COLOR2D(176, 204, 84) },
+		{ "GBC",  COLOR2D(240, 122, 176) },
+		{ "GBA",  COLOR2D(176, 128, 236) },
+		{ "SNES", COLOR2D(150, 150, 240) },
+		{ "MD",   COLOR2D(236, 88, 88) },
+		{ "32X",  COLOR2D(224, 128, 96) },
+		{ "SMS",  COLOR2D(98, 152, 246) },
+		{ "GG",   COLOR2D(246, 212, 84) },
+		{ "SG",   COLOR2D(182, 182, 182) },
+	};
+	for (unsigned i = 0; i < sizeof Colors / sizeof Colors[0]; i++)
 	{
-		return COLOR2D(196, 114, 238);
+		if (strcmp(entry->system, Colors[i].system) == 0)
+		{
+			return Colors[i].color;
+		}
 	}
-	return COLOR2D(118, 218, 135);
+	return COLOR2D(140, 148, 160);
 }
 
 static void FormatPath(char *dst, size_t dstSize, const char *directory)
@@ -426,10 +464,10 @@ static void DrawTextBrowser(CScreenDevice *pScreen,
 	}
 
 	ScreenWrite(pScreen, "\x1b[2J\x1b[H");
-	ScreenWriteLine(pScreen, "RetroArch bare-metal ROM-Auswahl");
-	ScreenWrite(pScreen, "Pfad: /");
+	ScreenWriteLine(pScreen, "MINERVA CONSOLE - ROM selection");
+	ScreenWrite(pScreen, "Path: /");
 	ScreenWriteLine(pScreen, directory && directory[0] ? directory : "");
-	ScreenWriteLine(pScreen, "A: starten/oeffnen  B: zurueck  Steuerkreuz: Auswahl");
+	ScreenWriteLine(pScreen, "A: start/open  B: back  D-pad: navigate");
 	ScreenWriteLine(pScreen, "");
 
 	unsigned rows = pScreen->GetRows();
@@ -447,7 +485,7 @@ static void DrawTextBrowser(CScreenDevice *pScreen,
 
 	if (count == 0)
 	{
-		ScreenWriteLine(pScreen, "  Keine unterstuetzten ROMs oder Ordner gefunden.");
+		ScreenWriteLine(pScreen, "  No supported ROMs or folders found.");
 	}
 	else
 	{
@@ -470,6 +508,126 @@ static void DrawTextBrowser(CScreenDevice *pScreen,
 	pScreen->Update();
 }
 
+static void DrawKeyHint(C2DGraphics *pGraphics,
+                        unsigned x,
+                        unsigned y,
+                        T2DColor keyColor,
+                        const char *key,
+                        const char *label,
+                        unsigned *pNextX)
+{
+	const unsigned charW = Font8x8.width;
+	const unsigned keyW = (unsigned)strlen(key) * charW + 4;
+	DrawRectClipped(pGraphics, x, y, keyW, 10, keyColor);
+	DrawTextLimited(pGraphics, x + 2, y + 1, keyW, COLOR2D(8, 10, 10), key, Font8x8);
+	DrawTextLimited(pGraphics, x + keyW + 3, y + 1, (unsigned)strlen(label) * charW, COLOR2D(232, 238, 230), label, Font8x8);
+	*pNextX = x + keyW + 3 + (unsigned)strlen(label) * charW + 9;
+}
+
+static void DrawCompactBrowser(C2DGraphics *pGraphics,
+                               const char *directory,
+                               const BrowserEntry *entries,
+                               unsigned count,
+                               unsigned selected)
+{
+	const unsigned screenW = pGraphics->GetWidth();
+	const unsigned screenH = pGraphics->GetHeight();
+	const unsigned headerH = 22;
+	const unsigned pathY = headerH + 2;
+	const unsigned pathH = TextHeightPixels(Font8x8, CCharGenerator::FontFlagsNone) + 2;
+	const unsigned footerH = 14;
+	const unsigned footerY = screenH > footerH ? screenH - footerH : 0;
+	const unsigned rowH = 18;
+	const unsigned listX = 2;
+	const unsigned listY = pathY + pathH + 2;
+	const unsigned listBottom = footerY > listY + rowH ? footerY - 2 : listY + rowH;
+	unsigned visibleRows = (listBottom - listY) / rowH;
+	if (visibleRows == 0)
+	{
+		visibleRows = 1;
+	}
+	const unsigned scrollW = count > visibleRows ? 5 : 0;
+	const unsigned listW = screenW > listX * 2 + scrollW ? screenW - listX * 2 - scrollW : screenW;
+
+	unsigned first = 0;
+	if (selected >= visibleRows)
+	{
+		first = selected - visibleRows + 1;
+	}
+
+	const T2DColor bg = COLOR2D(9, 12, 16);
+	const T2DColor header = COLOR2D(18, 24, 31);
+	const T2DColor panel = COLOR2D(25, 31, 38);
+	const T2DColor panelAlt = COLOR2D(30, 37, 44);
+	const T2DColor text = COLOR2D(232, 238, 230);
+	const T2DColor muted = COLOR2D(140, 153, 156);
+	const T2DColor selectedBg = COLOR2D(217, 137, 48);
+	const T2DColor selectedText = COLOR2D(16, 18, 20);
+	const T2DColor cyan = COLOR2D(50, 202, 210);
+	const T2DColor magenta = COLOR2D(203, 86, 214);
+	const T2DColor green = COLOR2D(100, 220, 130);
+
+	pGraphics->ClearScreen(bg);
+	DrawRectClipped(pGraphics, 0, 0, screenW, headerH, header);
+	DrawRectClipped(pGraphics, 0, 0, screenW, 2, cyan);
+	DrawRectClipped(pGraphics, 0, headerH - 2, screenW, 2, magenta);
+	DrawTextLimited(pGraphics, 6, 3, screenW > 80 ? screenW - 80 : screenW, text, BROWSER_TITLE, Font8x16);
+
+	char countText[32];
+	FormatCount(countText, sizeof(countText), selected, count);
+	pGraphics->DrawText(screenW - 6, 8, muted, countText, C2DGraphics::AlignRight, Font8x8);
+
+	char pathText[256];
+	FormatPath(pathText, sizeof(pathText), directory);
+	DrawTextLimited(pGraphics, 6, pathY + 1, screenW - 12, muted, pathText, Font8x8);
+
+	if (count == 0)
+	{
+		DrawRectClipped(pGraphics, listX, listY, listW, rowH * 2, panel);
+		DrawTextLimited(pGraphics, listX + 6, listY + 5, listW - 12, text, "NO ROMS FOUND", Font8x8);
+		DrawTextLimited(pGraphics, listX + 6, listY + 21, listW - 12, muted, "COPY YOUR GAMES TO THE SD CARD", Font8x8);
+	}
+
+	for (unsigned row = 0; row < visibleRows && first + row < count; row++)
+	{
+		const unsigned index = first + row;
+		const BrowserEntry *entry = &entries[index];
+		const bool isSelected = index == selected;
+		const unsigned y = listY + row * rowH;
+		const T2DColor rowColor = isSelected ? selectedBg : (row & 1 ? panelAlt : panel);
+		const T2DColor accent = isSelected ? selectedText : EntryAccentColor(entry);
+		const unsigned nameX = listX + 42;
+
+		DrawRectClipped(pGraphics, listX, y, listW, rowH - 1, rowColor);
+		DrawRectClipped(pGraphics, listX, y, 3, rowH - 1, accent);
+		DrawTextLimited(pGraphics, listX + 7, y + 5, 32, accent, EntryKind(entry), Font8x8);
+		DrawTextLimited(pGraphics, nameX, y + 1, listW > nameX + 2 ? listW - nameX - 2 : 8,
+			isSelected ? selectedText : text, entry->entry.name, Font8x16);
+	}
+
+	if (scrollW)
+	{
+		const unsigned trackX = screenW - scrollW + 1;
+		const unsigned trackH = visibleRows * rowH - 1;
+		unsigned thumbH = trackH * visibleRows / count;
+		if (thumbH < 6)
+		{
+			thumbH = 6;
+		}
+		const unsigned thumbY = listY + (trackH - thumbH) * first / (count - visibleRows);
+		DrawRectClipped(pGraphics, trackX, listY, scrollW - 2, trackH, panel);
+		DrawRectClipped(pGraphics, trackX, thumbY, scrollW - 2, thumbH, cyan);
+	}
+
+	DrawRectClipped(pGraphics, 0, footerY, screenW, footerH, COLOR2D(15, 19, 24));
+	unsigned hintX = 4;
+	DrawKeyHint(pGraphics, hintX, footerY + 2, green, "A", "START", &hintX);
+	DrawKeyHint(pGraphics, hintX, footerY + 2, magenta, "B", "BACK", &hintX);
+	DrawKeyHint(pGraphics, hintX, footerY + 2, cyan, "<>", "PAGE", &hintX);
+
+	pGraphics->UpdateDisplay();
+}
+
 static void DrawGraphicBrowser(C2DGraphics *pGraphics,
                                const char *directory,
                                const BrowserEntry *entries,
@@ -478,6 +636,12 @@ static void DrawGraphicBrowser(C2DGraphics *pGraphics,
 {
 	if (!pGraphics)
 	{
+		return;
+	}
+
+	if (pGraphics->GetHeight() < COMPACT_LAYOUT_MAX_HEIGHT)
+	{
+		DrawCompactBrowser(pGraphics, directory, entries, count, selected);
 		return;
 	}
 
@@ -528,10 +692,10 @@ static void DrawGraphicBrowser(C2DGraphics *pGraphics,
 	DrawRectClipped(pGraphics, margin, 32, 10, headerH > 70 ? headerH - 66 : 36, selectedBg);
 
 	DrawTextLimited(pGraphics, margin + 28, 28, listW > 28 ? listW - 28 : listW,
-		text, "BAREMETAL LIBRETRO", Font12x22, (CCharGenerator::TFontFlags)titleFlags);
+		text, BROWSER_TITLE, Font12x22, (CCharGenerator::TFontFlags)titleFlags);
 	DrawTextLimited(pGraphics, margin + 30, headerH > 56 ? headerH - 50 : 72,
 		listW > 30 ? listW - 30 : listW, muted,
-		"ROM AUSWAHL  -  NES UND N64", Font8x16);
+		BROWSER_SUBTITLE, Font8x16);
 
 	char pathText[256];
 	FormatPath(pathText, sizeof(pathText), directory);
@@ -545,7 +709,7 @@ static void DrawGraphicBrowser(C2DGraphics *pGraphics,
 		DrawRectClipped(pGraphics, listX, listY, listW, rowH * 3, panelAlt);
 		DrawOutlineClipped(pGraphics, listX, listY, listW, rowH * 3, outline);
 		DrawTextLimited(pGraphics, listX + 22, listY + rowH, listW > 44 ? listW - 44 : listW,
-			text, "KEINE UNTERSTUETZTEN ROMS ODER ORDNER GEFUNDEN", Font8x16);
+			text, "NO SUPPORTED ROMS OR FOLDERS FOUND", Font8x16);
 	}
 	else
 	{
@@ -574,7 +738,7 @@ static void DrawGraphicBrowser(C2DGraphics *pGraphics,
 				nameW, rowText, entry->entry.name, Font8x16);
 
 			const char *meta = entry->entry.isDirectory
-				? "ORDNER"
+				? "FOLDER"
 				: (entry->pCore ? entry->pCore->name : "");
 			if (metaX < listX + listW)
 			{
@@ -592,14 +756,14 @@ static void DrawGraphicBrowser(C2DGraphics *pGraphics,
 	DrawRectClipped(pGraphics, 0, footerY, screenW, footerH, COLOR2D(15, 19, 24));
 	DrawRectClipped(pGraphics, margin, footerY + 18, 34, 28, green);
 	DrawTextLimited(pGraphics, margin + 10, footerY + 23, 16, COLOR2D(8, 10, 10), "A", Font8x16);
-	DrawTextLimited(pGraphics, margin + 44, footerY + 23, 180, text, "START/OEFFNEN", Font8x16);
+	DrawTextLimited(pGraphics, margin + 44, footerY + 23, 180, text, "START/OPEN", Font8x16);
 	DrawRectClipped(pGraphics, margin + 244, footerY + 18, 34, 28, magenta);
 	DrawTextLimited(pGraphics, margin + 254, footerY + 23, 16, COLOR2D(8, 10, 10), "B", Font8x16);
-	DrawTextLimited(pGraphics, margin + 288, footerY + 23, 140, text, "ZURUECK", Font8x16);
+	DrawTextLimited(pGraphics, margin + 288, footerY + 23, 140, text, "BACK", Font8x16);
 	DrawRectClipped(pGraphics, margin + 446, footerY + 18, 74, 28, cyan);
 	DrawTextLimited(pGraphics, margin + 456, footerY + 23, 60, COLOR2D(8, 10, 10), "D-PAD", Font8x16);
 	DrawTextLimited(pGraphics, margin + 530, footerY + 23, listW > 530 ? listW - 530 : 120,
-		text, "AUSWAHL", Font8x16);
+		text, "NAVIGATE", Font8x16);
 
 	pGraphics->UpdateDisplay();
 }
@@ -630,10 +794,13 @@ static void DrawLaunchScreen(C2DGraphics *pGraphics,
 	{
 		const unsigned screenW = pGraphics->GetWidth();
 		const unsigned screenH = pGraphics->GetHeight();
-		const unsigned margin = screenW >= 1280 ? 96 : 32;
+		const bool compact = screenH < COMPACT_LAYOUT_MAX_HEIGHT;
+		const unsigned margin = compact ? 12 : (screenW >= 1280 ? 96 : 32);
 		const unsigned boxW = screenW > margin * 2 ? screenW - margin * 2 : screenW;
-		const unsigned boxH = screenH >= 900 ? 230 : 170;
+		const unsigned boxH = compact ? 110 : (screenH >= 900 ? 230 : 170);
 		const unsigned boxY = screenH > boxH ? (screenH - boxH) / 2 : 0;
+		const unsigned textX = compact ? margin + 20 : margin + 38;
+		const unsigned textW = boxW > (textX - margin) * 2 ? boxW - (textX - margin) * 2 : boxW;
 
 		pGraphics->ClearScreen(COLOR2D(8, 11, 15));
 		DrawRectClipped(pGraphics, 0, 0, screenW, 8, COLOR2D(50, 202, 210));
@@ -642,12 +809,20 @@ static void DrawLaunchScreen(C2DGraphics *pGraphics,
 		DrawOutlineClipped(pGraphics, margin, boxY, boxW, boxH, COLOR2D(80, 96, 108));
 		DrawRectClipped(pGraphics, margin, boxY, 10, boxH, COLOR2D(100, 220, 130));
 
-		DrawTextLimited(pGraphics, margin + 36, boxY + 34, boxW > 72 ? boxW - 72 : boxW,
-			COLOR2D(232, 238, 230), "STARTE ROM", Font12x22,
-			CCharGenerator::MakeFlags(screenW >= 1280, FALSE));
-		DrawTextLimited(pGraphics, margin + 38, boxY + 98, boxW > 76 ? boxW - 76 : boxW,
+		if (compact)
+		{
+			DrawTextLimited(pGraphics, textX, boxY + 16, textW,
+				COLOR2D(232, 238, 230), "LOADING GAME", Font8x16);
+		}
+		else
+		{
+			DrawTextLimited(pGraphics, margin + 36, boxY + 34, boxW > 72 ? boxW - 72 : boxW,
+				COLOR2D(232, 238, 230), "LOADING GAME", Font12x22,
+				CCharGenerator::MakeFlags(screenW >= 1280, FALSE));
+		}
+		DrawTextLimited(pGraphics, textX, boxY + (compact ? 48 : 98), textW,
 			COLOR2D(170, 185, 190), romPath, Font8x16);
-		DrawTextLimited(pGraphics, margin + 38, boxY + 130, boxW > 76 ? boxW - 76 : boxW,
+		DrawTextLimited(pGraphics, textX, boxY + (compact ? 76 : 130), textW,
 			COLOR2D(217, 137, 48), pCore ? pCore->name : "CORE", Font8x16);
 		pGraphics->UpdateDisplay();
 		return;
@@ -708,7 +883,9 @@ bool SelectRomAtBoot(CScreenDevice *pScreen,
                      CircleInput *pInput,
                      char *romPath,
                      size_t romPathSize,
-                     const LibretroCore **ppCore)
+                     const LibretroCore **ppCore,
+                     TRomBrowserAbortPoll pAbortPoll,
+                     void *pAbortContext)
 {
 	if (romPath && romPathSize)
 	{
@@ -723,12 +900,13 @@ bool SelectRomAtBoot(CScreenDevice *pScreen,
 		return false;
 	}
 
-	char directory[256];
-	directory[0] = 0;
+	// Kept between calls: after a game the browser opens where it was started.
+	static char directory[256];
 	static BrowserEntry entries[MAX_BROWSER_ENTRIES];
-	unsigned selected = 0;
+	static unsigned selected = 0;
 	unsigned count = 0;
-	unsigned lastButtons = 0;
+	// Buttons already held when the browser opens do not count as presses.
+	unsigned lastButtons = ReadButtons(pInput);
 	bool reload = true;
 	bool redraw = true;
 	C2DGraphics *pGraphics = 0;
@@ -809,6 +987,11 @@ bool SelectRomAtBoot(CScreenDevice *pScreen,
 				DrawLaunchScreen(pGraphics, pScreen, romPath, entry->pCore);
 				return true;
 			}
+		}
+
+		if (pAbortPoll && pAbortPoll(pAbortContext))
+		{
+			return false;
 		}
 
 		if (pTimer)

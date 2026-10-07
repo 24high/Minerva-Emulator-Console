@@ -16,6 +16,15 @@
 
 #include <libretro.h>
 
+#ifdef RA_BAREMETAL_FATFS
+// Circle's FatFs addon: subdirectories and long file names.
+#include <fatfs/ff.h>
+#define RA_BAREMETAL_FS_NAME_SIZE 128
+#else
+// Circle's native FAT driver: 8.3 names.
+#define RA_BAREMETAL_FS_NAME_SIZE (FS_TITLE_LEN+1)
+#endif
+
 class CircleLog
 {
 public:
@@ -52,8 +61,15 @@ public:
 	void SetDisplayAspectRatio(float aspectRatio);
 	bool SubmitFrame(const void *frame, unsigned width, unsigned height, size_t pitch);
 
+	// Diagnostics: frames drawn so far and the share of not black pixels in
+	// the first frame drawn after RequestSample().
+	unsigned FrameCount(void) const { return m_FrameCount; }
+	void RequestSample(void) { m_SampleRequested = true; }
+	unsigned SampledLitPercent(void) const { return m_SampledLitPercent; }
+
 private:
 	TScreenColor ConvertPixel(const void *pPixel) const;
+	unsigned LitPercent(const void *frame, unsigned width, unsigned height, size_t pitch) const;
 
 private:
 	CScreenDevice *m_pScreen;
@@ -70,6 +86,9 @@ private:
 	uint16_t m_XMap[2048];
 	uint16_t *m_pScaleBuffer;
 	size_t m_ScaleBufferPixels;
+	unsigned m_FrameCount;
+	bool m_SampleRequested;
+	unsigned m_SampledLitPercent;
 };
 
 class CircleAudio
@@ -121,20 +140,33 @@ class CircleFs
 public:
 	struct Entry
 	{
-		char name[FS_TITLE_LEN+1];
+		char name[RA_BAREMETAL_FS_NAME_SIZE];
 		unsigned size;
 		bool isDirectory;
 	};
 
 	CircleFs(void);
+#ifdef RA_BAREMETAL_FATFS
+	// Mounts the first FAT partition of the SD card (FatFs volume "SD:").
+	bool Mount(CircleLog *pLog);
+#else
 	void Init(CFATFileSystem *pFileSystem, CircleLog *pLog);
+#endif
 	bool ReadWholeFile(const char *path, uint8_t **ppData, size_t *pSize, size_t maxSize);
 	bool ListDirectory(const char *path, Entry *entries, unsigned maxEntries, unsigned *pCount);
 	bool FindFirstWithExtension(const char *extension, char *path, size_t pathSize);
+	bool FileExists(const char *path);
+	// With FatFs the file is replaced only once the new contents are
+	// completely written (written as <path>.tmp, then renamed).
 	bool WriteWholeFile(const char *path, const void *pData, size_t size);
 
 private:
+#ifdef RA_BAREMETAL_FATFS
+	FATFS m_FatFs;
+	bool m_Mounted;
+#else
 	CFATFileSystem *m_pFileSystem;
+#endif
 	CircleLog *m_pLog;
 };
 

@@ -15,7 +15,10 @@ CircleVideo::CircleVideo(void)
 	m_XMapCount(0),
 	m_XMapSourceWidth(0),
 	m_pScaleBuffer(0),
-	m_ScaleBufferPixels(0)
+	m_ScaleBufferPixels(0),
+	m_FrameCount(0),
+	m_SampleRequested(false),
+	m_SampledLitPercent(0)
 {
 }
 
@@ -137,11 +140,47 @@ static void FillRect16(CBcmFrameBuffer *pFrameBuffer,
 	}
 }
 
+unsigned CircleVideo::LitPercent(const void *frame, unsigned width, unsigned height, size_t pitch) const
+{
+	unsigned nLit = 0;
+	unsigned nTotal = 0;
+	for (unsigned y = 0; y < height; y += 4)
+	{
+		const uint8_t *pRow = (const uint8_t *)frame + y * pitch;
+		for (unsigned x = 0; x < width; x += 4)
+		{
+			uint32_t nPixel;
+			if (m_Format == RETRO_PIXEL_FORMAT_XRGB8888)
+			{
+				nPixel = ((const uint32_t *)pRow)[x] & 0xFFFFFF;
+			}
+			else
+			{
+				nPixel = ((const uint16_t *)pRow)[x];
+				if (m_Format == RETRO_PIXEL_FORMAT_0RGB1555)
+				{
+					nPixel &= 0x7FFF;
+				}
+			}
+			nLit += nPixel != 0;
+			nTotal++;
+		}
+	}
+	return nTotal ? nLit * 100 / nTotal : 0;
+}
+
 bool CircleVideo::SubmitFrame(const void *frame, unsigned width, unsigned height, size_t pitch)
 {
 	if (!m_pScreen || !frame || width == 0 || height == 0)
 	{
 		return false;
+	}
+
+	m_FrameCount++;
+	if (m_SampleRequested)
+	{
+		m_SampledLitPercent = LitPercent(frame, width, height, pitch);
+		m_SampleRequested = false;
 	}
 
 	const unsigned screenW = m_pScreen->GetWidth();
