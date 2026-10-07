@@ -172,7 +172,26 @@ Copy your games anywhere onto the SD card, folders and long file names are fine.
 | A | Start game or open folder |
 | B | Back to the parent folder |
 
-Every game is shown as a square tile with its name below. To give a game its own picture, put a PNG with the same name next to it, for example `Pokemon - FireRed Version (USA).png` (or `Pokemon - FireRed Version (USA).gba.png`). Games without a picture show the logo of their system.
+Every game is shown as a square tile with its name below. Games without their own picture show the logo of their system.
+
+**Game pictures**
+
+To give a game its own picture on the tile:
+
+1. Find a picture of the game, for example the box art or the title screen. Square pictures fill the whole tile, other shapes are fitted in with bars on two sides.
+2. Save it as a PNG file. JPEG and other formats are not supported. Any size up to 2048 x 2048 pixels works; around 256 x 256 is plenty for the GPi screen and loads fastest.
+3. Name it exactly like the game file, but with `.png` instead of the game's extension, and copy it into the same folder as the game:
+   ```
+   GBA/
+     Pokemon - FireRed Version (USA).gba
+     Pokemon - FireRed Version (USA).png
+   ```
+   Adding `.png` to the full file name works as well, for example `Pokemon - FireRed Version (USA).gba.png`.
+4. Put the SD card back into the case. The picture shows up the next time the folder is opened.
+
+If your games use the usual No-Intro names, the box art from [libretro-thumbnails](https://github.com/libretro-thumbnails) (folder `Named_Boxarts`) already has matching names. In those file names the characters `` &*/:`<>?\|" `` are replaced by `_`, so rename the picture if the game name contains one of them.
+
+A picture that cannot be read (damaged file, larger than 4 MB or 2048 x 2048 pixels) is skipped and the system logo is shown instead.
 
 **In game**
 
@@ -259,7 +278,7 @@ The emulator cores keep their own licenses. Snes9x 2002 and PicoDrive may not be
 <!-- CONTACT -->
 ## Contact
 
-decipher
+Dennis Michael Heine
 
 Project Link: [https://github.com/24high/Minerva-Emulator-Console](https://github.com/24high/Minerva-Emulator-Console)
 
